@@ -1,0 +1,41 @@
+# --------------------
+# Python
+# --------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# Virtual environments
+venv/
+Venv/
+ENV/
+.venv/
+
+# --------------------
+# Environment & Secrets
+# --------------------
+.env
+*.key
+*.pem
+
+# --------------------
+# IDE / Editor
+# --------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --------------------
+# Logs
+# --------------------
+*.log
+
+# --------------------
+# OS generated
+# --------------------
+.DS_Store
+Thumbs.db
