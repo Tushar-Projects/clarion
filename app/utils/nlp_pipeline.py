@@ -56,6 +56,7 @@ def process_posts_and_comments():
 
             comment.sentiment_score = vader_score
             # You can add a sarcasm flag column in DB, but for now let's just print
+            comment.is_sarcastic = 1 if sarcastic else 0
             if sarcastic:
                 print(f"⚠️ Possible sarcasm detected in comment: {comment.text[:80]}...")
 

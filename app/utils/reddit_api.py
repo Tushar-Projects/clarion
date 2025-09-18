@@ -20,21 +20,17 @@ reddit = praw.Reddit(
     user_agent=USER_AGENT
 )
 
-# --- Fix for Windows encoding issues ---
 def clean_text(text: str) -> str:
-    """Remove characters (like emojis) PostgreSQL can't store on Windows."""
+    """Remove unsupported characters (like emojis)"""
     return text.encode("ascii", "ignore").decode("ascii")
 
-
-def fetch_and_store_posts(subreddit_name="news", limit=5):
+def fetch_and_store_posts(subreddit_name="news", limit=10):
     db = SessionLocal()
     subreddit = reddit.subreddit(subreddit_name)
 
-    for submission in subreddit.hot(limit=limit):
-        # Skip if already stored
+    for submission in subreddit.new(limit=limit):  # ✅ fetch newest posts
+        # Check if post already exists
         existing_post = db.query(Post).filter_by(post_id=submission.id).first()
-        if existing_post:
-            continue
 
         # Match post source if possible
         source_id = None
@@ -44,36 +40,42 @@ def fetch_and_store_posts(subreddit_name="news", limit=5):
             if source:
                 source_id = source.id
 
-        # Store post
-        new_post = Post(
-            platform="Reddit",
-            post_id=submission.id,
-            title=clean_text(submission.title),
-            url=submission.url,
-            source_id=source_id
-        )
-        db.add(new_post)
-        db.commit()
-        db.refresh(new_post)
+        if existing_post:
+            # ✅ Update existing post
+            existing_post.title = clean_text(submission.title)
+            existing_post.url = submission.url
+            existing_post.source_id = source_id
+            db.add(existing_post)
+            post_record = existing_post
+        else:
+            # ✅ Insert new post
+            new_post = Post(
+                platform="Reddit",
+                post_id=submission.id,
+                title=clean_text(submission.title),
+                url=submission.url,
+                source_id=source_id
+            )
+            db.add(new_post)
+            db.commit()
+            db.refresh(new_post)
+            post_record = new_post
 
-        # Fetch comments (limit to 5 for testing)
+        # ✅ Refresh comments
         submission.comments.replace_more(limit=0)
+        db.query(Comment).filter_by(post_id=post_record.id).delete()  # delete old comments
         for comment in submission.comments[:5]:
-            try:
-                new_comment = Comment(
-                    comment_id=comment.id,
-                    text=clean_text(comment.body),
-                    post_id=new_post.id
-                )
-                db.add(new_comment)
-            except Exception as e:
-                print(f"⚠️ Skipped a comment due to error: {e}")
-        
-    db.commit()
+            new_comment = Comment(
+                comment_id=comment.id,
+                text=clean_text(comment.body),
+                post_id=post_record.id
+            )
+            db.add(new_comment)
+
+        db.commit()
 
     db.close()
-    print(f"✅ Stored {limit} posts from r/{subreddit_name}")
-
+    print(f"✅ Synced {limit} latest posts from r/{subreddit_name}")
 
 if __name__ == "__main__":
-    fetch_and_store_posts("news", limit=5)
+    fetch_and_store_posts("news", limit=10)
