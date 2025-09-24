@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 from app.utils.database import SessionLocal
 from app.models import Post, Source, Comment
 from app.utils import reddit_api, nlp_pipeline, credibility
@@ -88,6 +88,10 @@ def check_url():
      db.close()
 
      return jsonify(result)
+
+@app.route("/check", methods=["GET"])
+def check_page():
+    return render_template("check_url.html")
 
 if __name__ == "__main__":
     app.run(debug=True)

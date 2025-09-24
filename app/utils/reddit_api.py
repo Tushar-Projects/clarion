@@ -58,7 +58,8 @@ def fetch_and_store_posts(subreddit_name="news", limit=10):
             db.refresh(new_post)
             post_record = new_post
 
-        # ✅ Refresh comments (limit to top 20)
+        # ✅ Refresh top 20 comments
+        submission.comment_sort = "top"
         submission.comments.replace_more(limit=0)
         db.query(Comment).filter_by(post_id=post_record.id).delete()
         for comment in submission.comments[:20]:
@@ -75,7 +76,7 @@ def fetch_and_store_posts(subreddit_name="news", limit=10):
     print(f"✅ Synced {limit} latest posts from r/{subreddit_name}")
 
 def fetch_post_by_url(url: str):
-    """Fetch a single Reddit post and its comments by URL"""
+    """Fetch a single Reddit post and its top 20 comments by URL"""
     db = SessionLocal()
 
     try:
@@ -109,7 +110,8 @@ def fetch_post_by_url(url: str):
             db.refresh(new_post)
             post_record = new_post
 
-        # ✅ Refresh comments (limit to top 20)
+        # ✅ Refresh top 20 comments
+        submission.comment_sort = "top"
         submission.comments.replace_more(limit=0)
         db.query(Comment).filter_by(post_id=post_record.id).delete()
         for comment in submission.comments[:20]:

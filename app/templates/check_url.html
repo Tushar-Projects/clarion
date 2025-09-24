@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Check Reddit Credibility</title>
+</head>
+<body>
+  <h2>Paste a Reddit link:</h2>
+  <form id="checkForm">
+    <input type="text" id="urlInput" placeholder="Enter Reddit URL" size="60" required />
+    <button type="submit">Check Credibility</button>
+  </form>
+
+  <pre id="result"></pre>
+
+  <script>
+    document.getElementById("checkForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const url = document.getElementById("urlInput").value;
+
+      const response = await fetch("/check_url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
+
+      const data = await response.json();
+      document.getElementById("result").textContent = JSON.stringify(data, null, 2);
+    });
+  </script>
+</body>
+</html>
