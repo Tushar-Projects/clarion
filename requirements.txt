@@ -17,3 +17,6 @@ wordcloud
 apscheduler
 python-dotenv
 requests
+protobuf
+sentencepiece
+langdetect
