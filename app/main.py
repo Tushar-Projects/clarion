@@ -21,11 +21,18 @@ def post_to_dict(post, include_comments=False):
         "platform": post.platform,
         "title": post.title,
         "url": post.url,
-        "credibility_score": post.credibility_score,
         "created_at": post.created_at.isoformat() if post.created_at else None,
     }
+    if post.credibility_score is None:
+        data["credibility_score"] = None
+        data["status"] = "insufficient_data"
+    else:
+        data["credibility_score"] = post.credibility_score
+        data["status"] = "scored"
+
     if include_comments:
         data["comments"] = [comment_to_dict(c) for c in post.comments]
+
     return data
 
 @app.route("/")
@@ -66,28 +73,30 @@ def search_posts():
 # 4️⃣ Check credibility for a pasted Reddit URL
 @app.route("/check_url", methods=["POST"])
 def check_url():
-     data = request.get_json()
-     url = data.get("url")
+    data = request.get_json()
+    url = data.get("url")
 
-     if not url or "reddit.com" not in url:
+    if not url or "reddit.com" not in url:
         return jsonify({"error": "Only Reddit URLs are supported for now"}), 400
 
     # ✅ Fetch exact Reddit post by URL
-     post_id = reddit_api.fetch_post_by_url(url)
-     if not post_id:
+    post_id = reddit_api.fetch_post_by_url(url)
+    if not post_id:
         return jsonify({"error": "Could not fetch Reddit post"}), 500
 
-    # ✅ Run NLP & Credibility pipeline
-     nlp_pipeline.process_posts_and_comments()
-     credibility.compute_credibility()
+    # ✅ Run NLP only for this post
+    nlp_pipeline.process_single_post(post_id)
+
+    # ✅ Compute credibility only for this post
+    credibility.compute_single_post(post_id)
 
     # ✅ Query DB for this post
-     db = SessionLocal()
-     post = db.query(Post).filter_by(id=post_id).first()
-     result = post_to_dict(post, include_comments=True)
-     db.close()
+    db = SessionLocal()
+    post = db.query(Post).filter_by(id=post_id).first()
+    result = post_to_dict(post, include_comments=True)
+    db.close()
 
-     return jsonify(result)
+    return jsonify(result)
 
 @app.route("/check", methods=["GET"])
 def check_page():

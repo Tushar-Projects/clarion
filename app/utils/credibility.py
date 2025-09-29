@@ -13,33 +13,42 @@ FACT_CHECK_API_KEY = os.getenv("FACT_CHECK_API_KEY")
 # -------------------------------
 # Baseline Credibility Calculation
 # -------------------------------
-def compute_baseline_score(post: Post, db: Session) -> float:
+def compute_baseline_score(post: Post, db: Session) -> float | None:
     """
     Compute a credibility score based on:
     - sentiment of comments
     - sarcasm ratio
     - source reliability (if available)
+    Returns None if there is insufficient data.
     """
     comments = db.query(Comment).filter_by(post_id=post.id).all()
-    if not comments:
-        return 0.0
+    has_source = bool(post.source_id)
 
-    # Average sentiment score
-    sentiment_score = sum(c.sentiment_score for c in comments if c.sentiment_score is not None) / max(len(comments), 1)
+    # If no comments AND no source → insufficient data
+    if not comments and not has_source:
+        return None
 
-    # Sarcasm penalty (more sarcasm = less credible)
-    sarcasm_count = sum(1 for c in comments if c.is_sarcastic)
-    sarcasm_ratio = sarcasm_count / max(len(comments), 1)
-    sarcasm_penalty = -0.2 * sarcasm_ratio
+    sentiment_score = 0.0
+    sarcasm_penalty = 0.0
+    reliability_bonus = 0.0
+
+    if comments:
+        # Average sentiment score
+        sentiment_score = sum(
+            c.sentiment_score for c in comments if c.sentiment_score is not None
+        ) / max(len(comments), 1)
+
+        # Sarcasm penalty
+        sarcasm_count = sum(1 for c in comments if c.is_sarcastic)
+        sarcasm_ratio = sarcasm_count / max(len(comments), 1)
+        sarcasm_penalty = -0.2 * sarcasm_ratio
 
     # Source reliability bonus
-    reliability_bonus = 0
     if post.source_id:
         source = db.query(Source).filter_by(id=post.source_id).first()
         if source and source.reliability_score is not None:
             reliability_bonus = source.reliability_score
 
-    # Final baseline score
     baseline_score = sentiment_score + sarcasm_penalty + reliability_bonus
     return max(-1, min(1, baseline_score))  # clamp between -1 and 1
 
@@ -47,11 +56,12 @@ def compute_baseline_score(post: Post, db: Session) -> float:
 # -------------------------------
 # Google Fact Check Adjustment
 # -------------------------------
-def apply_fact_check_adjustment(title: str, baseline_score: float) -> float:
+def apply_fact_check_adjustment(title: str, baseline_score: float | None) -> float | None:
     """
     Query Google Fact Check API and adjust credibility score:
     - If a claim review is found with 'False' → decrease score
     - If 'True' or 'Correct' → increase score
+    If baseline_score is None, still return None unless fact-check yields a strong result.
     """
     if not FACT_CHECK_API_KEY:
         return baseline_score
@@ -69,9 +79,13 @@ def apply_fact_check_adjustment(title: str, baseline_score: float) -> float:
                     for review in claim["claimReview"]:
                         rating = review.get("textualRating", "").lower()
                         if "false" in rating or "pants on fire" in rating:
-                            return baseline_score - 0.3
-                        elif "true" in rating or "correct" in rating or "accurate" in rating:
-                            return baseline_score + 0.3
+                            return (baseline_score or 0.0) - 0.3
+                        elif (
+                            "true" in rating
+                            or "correct" in rating
+                            or "accurate" in rating
+                        ):
+                            return (baseline_score or 0.0) + 0.3
     except Exception as e:
         print(f"⚠️ Fact check API error: {e}")
 
@@ -79,7 +93,7 @@ def apply_fact_check_adjustment(title: str, baseline_score: float) -> float:
 
 
 # -------------------------------
-# Main Function
+# Main Functions
 # -------------------------------
 def compute_credibility():
     """Recalculate credibility score for all posts"""
@@ -90,12 +104,44 @@ def compute_credibility():
             baseline_score = compute_baseline_score(post, db)
             final_score = apply_fact_check_adjustment(post.title, baseline_score)
 
-            post.credibility_score = max(-1, min(1, final_score))  # clamp
+            post.credibility_score = (
+                max(-1, min(1, final_score)) if final_score is not None else None
+            )
             db.add(post)
 
         db.commit()
-        print("✅ Credibility scores updated")
+        print("✅ Credibility scores updated for all posts")
     except Exception as e:
         print(f"❌ Error updating credibility: {e}")
+    finally:
+        db.close()
+
+
+def compute_single_post(post_id: int):
+    """Recalculate credibility score for a single post"""
+    db = SessionLocal()
+    try:
+        post = db.query(Post).filter_by(id=post_id).first()
+        if not post:
+            print(f"⚠️ Post {post_id} not found")
+            return None
+
+        baseline_score = compute_baseline_score(post, db)
+        final_score = apply_fact_check_adjustment(post.title, baseline_score)
+
+        post.credibility_score = (
+            max(-1, min(1, final_score)) if final_score is not None else None
+        )
+        db.add(post)
+        db.commit()
+
+        status = (
+            "insufficient_data" if final_score is None else f"{post.credibility_score:.3f}"
+        )
+        print(f"✅ Updated credibility for post {post_id}: {status}")
+        return post.credibility_score
+    except Exception as e:
+        print(f"❌ Error updating credibility for post {post_id}: {e}")
+        return None
     finally:
         db.close()
