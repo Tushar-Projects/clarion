@@ -92,6 +92,67 @@ def apply_fact_check_adjustment(title: str, baseline_score: float | None) -> flo
     return baseline_score
 
 
+def compute_advanced_score(post: Post, db: Session) -> float | None:
+    """
+    Weighted credibility scoring formula:
+    - Sentiment (scaled by comment volume)
+    - Sarcasm penalty
+    - Source reliability
+    - Fact check adjustment (stronger weight)
+    """
+
+    comments = db.query(Comment).filter_by(post_id=post.id).all()
+    if not comments and not post.source_id:
+        return None  # insufficient data
+
+    # ---- Sentiment (scaled by number of comments) ----
+    if comments:
+        avg_sentiment = sum(
+            c.sentiment_score for c in comments if c.sentiment_score is not None
+        ) / max(len(comments), 1)
+
+        # Scale by comment volume (more comments = more reliable)
+        volume_factor = min(1.0, (len(comments) / 20))  
+        sentiment_component = avg_sentiment * volume_factor
+    else:
+        sentiment_component = 0
+
+    # ---- Sarcasm penalty ----
+    sarcasm_ratio = (
+        sum(1 for c in comments if c.is_sarcastic) / max(len(comments), 1)
+    ) if comments else 0
+    sarcasm_component = -sarcasm_ratio  
+
+    # ---- Source reliability ----
+    source_component = 0
+    if post.source_id:
+        source = db.query(Source).filter_by(id=post.source_id).first()
+        if source and source.reliability_score is not None:
+            source_component = source.reliability_score
+
+    # ---- Fact-check adjustment (stronger) ----
+    baseline_for_factcheck = sentiment_component + source_component
+    factcheck_component = apply_fact_check_adjustment(
+        post.title, baseline_for_factcheck
+    )
+    if factcheck_component is not None:
+        # We only care about the delta adjustment
+        factcheck_component = factcheck_component - baseline_for_factcheck
+    else:
+        factcheck_component = 0
+
+    # ---- Weighted formula ----
+    final_score = (
+        (0.4 * sentiment_component)
+        + (0.2 * sarcasm_component)
+        + (0.2 * source_component)
+        + (0.2 * factcheck_component)
+    )
+
+    return max(-1, min(1, final_score))
+
+
+
 # -------------------------------
 # Main Functions
 # -------------------------------
@@ -107,6 +168,10 @@ def compute_credibility():
             post.credibility_score = (
                 max(-1, min(1, final_score)) if final_score is not None else None
             )
+
+            # ✅ Advanced scoring
+            post.advanced_score = compute_advanced_score(post, db)
+
             db.add(post)
 
         db.commit()
@@ -115,6 +180,7 @@ def compute_credibility():
         print(f"❌ Error updating credibility: {e}")
     finally:
         db.close()
+
 
 
 def compute_single_post(post_id: int):
@@ -132,16 +198,23 @@ def compute_single_post(post_id: int):
         post.credibility_score = (
             max(-1, min(1, final_score)) if final_score is not None else None
         )
+
+        # ✅ Advanced scoring
+        post.advanced_score = compute_advanced_score(post, db)
+
         db.add(post)
         db.commit()
 
         status = (
             "insufficient_data" if final_score is None else f"{post.credibility_score:.3f}"
         )
-        print(f"✅ Updated credibility for post {post_id}: {status}")
+        print(f"✅ Updated credibility for post {post_id}: {status} "
+              f"(advanced: {post.advanced_score})")
+
         return post.credibility_score
     except Exception as e:
         print(f"❌ Error updating credibility for post {post_id}: {e}")
         return None
     finally:
         db.close()
+
