@@ -2,6 +2,8 @@ import os
 import requests
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
+from sqlalchemy import JSON
+
 
 from app.utils.database import SessionLocal
 from app.models import Post, Comment, Source
@@ -92,65 +94,89 @@ def apply_fact_check_adjustment(title: str, baseline_score: float | None) -> flo
     return baseline_score
 
 
-def compute_advanced_score(post: Post, db: Session) -> float | None:
+def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]:
     """
-    Weighted credibility scoring formula:
-    - Sentiment (scaled by comment volume)
-    - Sarcasm penalty
-    - Source reliability
-    - Fact check adjustment (stronger weight)
+    Truth-focused advanced scoring with explanation:
+    Returns final_score (float or None) and explanation (dict)
     """
 
     comments = db.query(Comment).filter_by(post_id=post.id).all()
-    if not comments and not post.source_id:
-        return None  # insufficient data
+    if not comments and not post.source_id and not post.url:
+        return None, {"reason": "insufficient_data"}
 
-    # ---- Sentiment (scaled by number of comments) ----
+    explanation = {}
+
+    # ---- Sentiment (light weight) ----
     if comments:
         avg_sentiment = sum(
             c.sentiment_score for c in comments if c.sentiment_score is not None
         ) / max(len(comments), 1)
 
-        # Scale by comment volume (more comments = more reliable)
-        volume_factor = min(1.0, (len(comments) / 20))  
+        volume_factor = min(1.0, (len(comments) / 20))
         sentiment_component = avg_sentiment * volume_factor
     else:
         sentiment_component = 0
+    explanation["sentiment_component"] = round(sentiment_component, 3)
 
     # ---- Sarcasm penalty ----
     sarcasm_ratio = (
         sum(1 for c in comments if c.is_sarcastic) / max(len(comments), 1)
     ) if comments else 0
-    sarcasm_component = -sarcasm_ratio  
+    sarcasm_component = -0.1 * sarcasm_ratio
+    explanation["sarcasm_component"] = round(sarcasm_component, 3)
 
     # ---- Source reliability ----
     source_component = 0
+    source_domain = None
     if post.source_id:
         source = db.query(Source).filter_by(id=post.source_id).first()
         if source and source.reliability_score is not None:
             source_component = source.reliability_score
+            source_domain = source.url_pattern
+    explanation["source_component"] = round(source_component, 3)
+    if source_domain:
+        explanation["source_domain"] = source_domain
 
-    # ---- Fact-check adjustment (stronger) ----
+    # ---- Fact-check adjustment ----
     baseline_for_factcheck = sentiment_component + source_component
     factcheck_component = apply_fact_check_adjustment(
         post.title, baseline_for_factcheck
     )
     if factcheck_component is not None:
-        # We only care about the delta adjustment
         factcheck_component = factcheck_component - baseline_for_factcheck
     else:
         factcheck_component = 0
+    explanation["factcheck_component"] = round(factcheck_component, 3)
 
-    # ---- Weighted formula ----
+    # ---- Article boost ----
+    article_boost = 0
+    boost_reason = None
+    if post.url:
+        trusted_sources = ["reuters.com", "bbc.com", "nytimes.com", "apnews.com", "aljazeera.com", "theguardian.com"]
+        if any(domain in post.url for domain in trusted_sources):
+            article_boost = 0.3
+            boost_reason = f"Trusted domain ({post.url})"
+        elif post.url.startswith("http") and not post.url.endswith((".jpg", ".png", ".gif")) \
+             and "redd.it" not in post.url:
+            article_boost = 0.1
+            boost_reason = f"External article link ({post.url})"
+    explanation["article_boost"] = article_boost
+    if boost_reason:
+        explanation["article_reason"] = boost_reason
+
+    # ---- Final score ----
     final_score = (
-        (0.4 * sentiment_component)
-        + (0.2 * sarcasm_component)
-        + (0.2 * source_component)
-        + (0.2 * factcheck_component)
+        (0.15 * sentiment_component) +
+        (0.10 * sarcasm_component) +
+        (0.30 * source_component) +
+        (0.40 * factcheck_component) +
+        article_boost
     )
+    final_score = max(-1, min(1, final_score))
 
-    return max(-1, min(1, final_score))
+    explanation["final_score"] = round(final_score, 3)
 
+    return final_score, explanation
 
 
 # -------------------------------
@@ -168,10 +194,10 @@ def compute_credibility():
             post.credibility_score = (
                 max(-1, min(1, final_score)) if final_score is not None else None
             )
-
-            # ✅ Advanced scoring
-            post.advanced_score = compute_advanced_score(post, db)
-
+            # Corrected assignment: call compute_advanced_score once, then assign the float
+            advanced_score, explanation = compute_advanced_score(post, db)
+            post.advanced_score = advanced_score 
+            post.score_explanation = explanation
             db.add(post)
 
         db.commit()
@@ -198,10 +224,10 @@ def compute_single_post(post_id: int):
         post.credibility_score = (
             max(-1, min(1, final_score)) if final_score is not None else None
         )
-
-        # ✅ Advanced scoring
-        post.advanced_score = compute_advanced_score(post, db)
-
+        # Corrected assignment: call compute_advanced_score once, then assign the float
+        advanced_score, explanation = compute_advanced_score(post, db)
+        post.advanced_score = advanced_score
+        post.score_explanation = explanation  # ✅ Save JSON into DB
         db.add(post)
         db.commit()
 
@@ -217,4 +243,3 @@ def compute_single_post(post_id: int):
         return None
     finally:
         db.close()
-

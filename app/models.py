@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, func, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, func, Boolean, JSON
 from sqlalchemy.orm import relationship
 from app.utils.database import Base
 
@@ -26,6 +26,7 @@ class Post(Base):
     sentiment_score = Column(Float, nullable=True)  # <-- Add this
     source_id = Column(Integer, ForeignKey("sources.id"))
     advanced_score = Column(Float, nullable=True)
+    score_explanation = Column(JSON, nullable=True)
 
     source = relationship("Source", back_populates="posts")
     comments = relationship("Comment", back_populates="post")
