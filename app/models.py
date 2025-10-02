@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, func
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, func, Boolean
 from sqlalchemy.orm import relationship
 from app.utils.database import Base
 
@@ -25,6 +25,7 @@ class Post(Base):
     credibility_score = Column(Float, nullable=True)
     sentiment_score = Column(Float, nullable=True)  # <-- Add this
     source_id = Column(Integer, ForeignKey("sources.id"))
+    advanced_score = Column(Float, nullable=True)
 
     source = relationship("Source", back_populates="posts")
     comments = relationship("Comment", back_populates="post")
@@ -38,6 +39,6 @@ class Comment(Base):
     text = Column(Text, nullable=False)
     post_id = Column(Integer, ForeignKey("posts.id"))
     sentiment_score = Column(Float, nullable=True)  # <-- Add this
-    is_sarcastic = Column(Integer, default=0)
+    is_sarcastic = Column(Boolean, default=False)
     post = relationship("Post", back_populates="comments")
     language = Column(String, nullable=True)

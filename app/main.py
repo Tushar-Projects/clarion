@@ -28,6 +28,7 @@ def post_to_dict(post, include_comments=False):
         data["status"] = "insufficient_data"
     else:
         data["credibility_score"] = post.credibility_score
+        data["advanced_score"] = post.advanced_score
         data["status"] = "scored"
 
     if include_comments:
@@ -84,19 +85,20 @@ def check_url():
     if not post_id:
         return jsonify({"error": "Could not fetch Reddit post"}), 500
 
-    # ✅ Run NLP only for this post
+    # ✅ Force NLP pipeline for this post
     nlp_pipeline.process_single_post(post_id)
 
-    # ✅ Compute credibility only for this post
+    # ✅ Force credibility calculation for this post
     credibility.compute_single_post(post_id)
 
-    # ✅ Query DB for this post
+    # ✅ Query DB for updated post
     db = SessionLocal()
     post = db.query(Post).filter_by(id=post_id).first()
     result = post_to_dict(post, include_comments=True)
     db.close()
 
     return jsonify(result)
+
 
 @app.route("/check", methods=["GET"])
 def check_page():
