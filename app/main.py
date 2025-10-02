@@ -21,6 +21,9 @@ def post_to_dict(post, include_comments=False):
         "platform": post.platform,
         "title": post.title,
         "url": post.url,
+        "credibility_score": post.credibility_score,
+        "advanced_score": post.advanced_score,
+        "score_explanation": post.score_explanation,
         "created_at": post.created_at.isoformat() if post.created_at else None,
     }
     if post.credibility_score is None:
