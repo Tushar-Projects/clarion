@@ -1,4 +1,5 @@
 import os
+import re
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 from sqlalchemy.orm import Session
 from langdetect import detect, DetectorFactory
@@ -21,8 +22,20 @@ sentiment_pipeline = pipeline("sentiment-analysis", model=model, tokenizer=token
 # Dummy Sarcasm Detection
 # -------------------------------
 def detect_sarcasm(text: str) -> bool:
-    sarcastic_keywords = ["yeah right", "totally", "as if", "sure thing", "/s"]
-    return any(keyword in text.lower() for keyword in sarcastic_keywords)
+    # Remove URLs so they don't trigger "/s"
+    cleaned = re.sub(r"http\S+|www\S+|https\S+", "", text.lower())
+
+    sarcastic_keywords = ["yeah right", "totally", "as if", "sure thing"]
+
+    # Keyword-based sarcasm
+    if any(keyword in cleaned for keyword in sarcastic_keywords):
+        return True
+
+    # Explicit "/s" sarcasm → only valid if at end of comment
+    if cleaned.strip().endswith("/s"):
+        return True
+
+    return False
 
 # -------------------------------
 # Language Detection

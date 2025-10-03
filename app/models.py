@@ -27,6 +27,7 @@ class Post(Base):
     source_id = Column(Integer, ForeignKey("sources.id"))
     advanced_score = Column(Float, nullable=True)
     score_explanation = Column(JSON, nullable=True)
+    community_sentiment = Column(Float, nullable=True)
 
     source = relationship("Source", back_populates="posts")
     comments = relationship("Comment", back_populates="post")

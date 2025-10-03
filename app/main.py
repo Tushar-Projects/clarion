@@ -23,6 +23,7 @@ def post_to_dict(post, include_comments=False):
         "url": post.url,
         "credibility_score": post.credibility_score,
         "advanced_score": post.advanced_score,
+        "community_sentiment": post.community_sentiment,
         "score_explanation": post.score_explanation,
         "created_at": post.created_at.isoformat() if post.created_at else None,
     }
