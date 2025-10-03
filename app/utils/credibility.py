@@ -17,43 +17,85 @@ FACT_CHECK_API_KEY = os.getenv("FACT_CHECK_API_KEY")
 # -------------------------------
 def compute_baseline_score(post: Post, db: Session) -> float | None:
     """
-    Compute a credibility score based on:
-    - sentiment of comments
-    - sarcasm ratio
-    - source reliability (if available)
-    Returns None if there is insufficient data.
+    Community-driven baseline credibility:
+    - Focus on whether comments claim the post is fake/true
+    - Requires multiple people for consensus shift
+    - Adds small popularity boost if highly engaged post but no consensus
+    - Ignores emotional sentiment (that is tracked separately as community_sentiment)
+    """
+
+    comments = db.query(Comment).filter_by(post_id=post.id).all()
+    if not comments:
+        return None
+
+    total_comments = len(comments)
+    if total_comments == 0:
+        return None
+
+    # ---- Step 1: Detect "fake/true" claims in comments ----
+    fake_keywords = ["fake", "false", "misinformation", "propaganda", "hoax", "scam", "made up", "not true"]
+    true_keywords = ["real", "true", "confirmed", "fact", "evidence", "source", "proven", "legit"]
+
+    fake_votes = 0
+    true_votes = 0
+
+    for c in comments:
+        text = c.text.lower()
+        if any(word in text for word in fake_keywords):
+            fake_votes += 1
+        if any(word in text for word in true_keywords):
+            true_votes += 1
+
+    # ---- Step 2: Calculate proportions ----
+    fake_ratio = fake_votes / total_comments
+    true_ratio = true_votes / total_comments
+
+    # ---- Step 3: Apply thresholds ----
+    score = 0.0
+
+    if fake_ratio >= 0.3:       # strong fake consensus
+        score -= 0.7
+    elif fake_ratio >= 0.2:     # mild fake consensus
+        score -= 0.5
+
+    if true_ratio >= 0.3:       # strong true consensus
+        score += 0.7
+    elif true_ratio >= 0.2:     # mild true consensus
+        score += 0.5
+
+    # ---- Step 4: Popularity fallback ----
+    # If no consensus shift, but post is very active (lots of comments/upvotes),
+    # assume slight positive credibility because people accept it by default
+    if score == 0.0:
+        if total_comments > 100 or (post.url and "reddit.com" not in post.url):
+            score = 0.2
+
+    return max(-1, min(1, score))
+
+
+def compute_community_sentiment(post: Post, db: Session) -> float | None:
+    """
+    Emotional sentiment of the community toward the post
+    (positive/negative reaction, sarcasm included).
+    Independent of truthfulness.
     """
     comments = db.query(Comment).filter_by(post_id=post.id).all()
-    has_source = bool(post.source_id)
-
-    # If no comments AND no source → insufficient data
-    if not comments and not has_source:
+    if not comments:
         return None
 
     sentiment_score = 0.0
     sarcasm_penalty = 0.0
-    reliability_bonus = 0.0
 
     if comments:
-        # Average sentiment score
         sentiment_score = sum(
             c.sentiment_score for c in comments if c.sentiment_score is not None
         ) / max(len(comments), 1)
 
-        # Sarcasm penalty
         sarcasm_count = sum(1 for c in comments if c.is_sarcastic)
         sarcasm_ratio = sarcasm_count / max(len(comments), 1)
         sarcasm_penalty = -0.2 * sarcasm_ratio
 
-    # Source reliability bonus
-    if post.source_id:
-        source = db.query(Source).filter_by(id=post.source_id).first()
-        if source and source.reliability_score is not None:
-            reliability_bonus = source.reliability_score
-
-    baseline_score = sentiment_score + sarcasm_penalty + reliability_bonus
-    return max(-1, min(1, baseline_score))  # clamp between -1 and 1
-
+    return max(-1, min(1, sentiment_score + sarcasm_penalty))
 
 # -------------------------------
 # Google Fact Check Adjustment
@@ -189,6 +231,7 @@ def compute_credibility():
         posts = db.query(Post).all()
         for post in posts:
             baseline_score = compute_baseline_score(post, db)
+            community_sentiment = compute_community_sentiment(post, db)
             final_score = apply_fact_check_adjustment(post.title, baseline_score)
 
             post.credibility_score = (
@@ -196,7 +239,8 @@ def compute_credibility():
             )
             # Corrected assignment: call compute_advanced_score once, then assign the float
             advanced_score, explanation = compute_advanced_score(post, db)
-            post.advanced_score = advanced_score 
+            post.advanced_score = advanced_score
+            post.community_sentiment = community_sentiment
             post.score_explanation = explanation
             db.add(post)
 
@@ -219,6 +263,7 @@ def compute_single_post(post_id: int):
             return None
 
         baseline_score = compute_baseline_score(post, db)
+        community_sentiment = compute_community_sentiment(post, db)
         final_score = apply_fact_check_adjustment(post.title, baseline_score)
 
         post.credibility_score = (
@@ -227,6 +272,7 @@ def compute_single_post(post_id: int):
         # Corrected assignment: call compute_advanced_score once, then assign the float
         advanced_score, explanation = compute_advanced_score(post, db)
         post.advanced_score = advanced_score
+        post.community_sentiment = community_sentiment
         post.score_explanation = explanation  # ✅ Save JSON into DB
         db.add(post)
         db.commit()
