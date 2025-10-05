@@ -3,6 +3,8 @@ import re
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 from sqlalchemy.orm import Session
 from langdetect import detect, DetectorFactory
+from functools import lru_cache
+import html
 
 from app.utils.database import SessionLocal
 from app.models import Post, Comment
@@ -18,24 +20,133 @@ tokenizer = AutoTokenizer.from_pretrained(SENTIMENT_MODEL, use_fast=False)  # sa
 model = AutoModelForSequenceClassification.from_pretrained(SENTIMENT_MODEL)
 sentiment_pipeline = pipeline("sentiment-analysis", model=model, tokenizer=tokenizer)
 
+SARCASM_MODEL = "cardiffnlp/twitter-roberta-base-irony"
+sarcasm_tokenizer = AutoTokenizer.from_pretrained(SARCASM_MODEL)
+sarcasm_model = AutoModelForSequenceClassification.from_pretrained(SARCASM_MODEL)
+sarcasm_pipeline = pipeline("text-classification", model=sarcasm_model, tokenizer=sarcasm_tokenizer)
+
+# simple cache to avoid repeated model calls for identical texts
+@lru_cache(maxsize=2048)
+def _model_predict_sarcasm(text: str):
+    """Return (label, score) from sarcasm model; safe wrapper."""
+    try:
+        out = sarcasm_pipeline(text[:512])[0]
+        return out.get("label", "").lower(), float(out.get("score", 0.0))
+    except Exception:
+        return None, 0.0
+
+def _strip_markup_and_urls(text: str) -> str:
+    # remove HTML entities, block quotes, markdown links and URLs
+    t = html.unescape(text)
+    t = re.sub(r"^>.*$", "", t, flags=re.MULTILINE)  # drop quoted lines
+    # convert markdown links [text](url) -> text
+    t = re.sub(r"\[([^\]]+)\]\((?:http[s]?:\/\/[^\)]+)\)", r"\1", t)
+    # remove plain URLs
+    t = re.sub(r"http\S+|www\.\S+", "", t)
+    # collapse whitespace
+    return re.sub(r"\s+", " ", t).strip()
+
+def _all_caps_ratio(text: str) -> float:
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return 0.0
+    return sum(1 for c in letters if c.isupper()) / len(letters)
+
 # -------------------------------
-# Dummy Sarcasm Detection
+# Sarcasm Detection
 # -------------------------------
 def detect_sarcasm(text: str) -> bool:
-    # Remove URLs so they don't trigger "/s"
-    cleaned = re.sub(r"http\S+|www\S+|https\S+", "", text.lower())
+    """
+    Ensemble sarcasm detector:
+    - Strong rule-based checks for high-precision detection
+    - Heuristic scoring for medium-confidence cases
+    - Transformer model only as a tie-breaker (and only when useful)
+    This function is deliberately conservative to minimize false positives.
+    """
+    try:
+        if not text or not text.strip():
+            return False
 
-    sarcastic_keywords = ["yeah right", "totally", "as if", "sure thing"]
+        # 1) Pre-cleaning
+        raw = text
+        cleaned = _strip_markup_and_urls(raw)
+        lc = cleaned.lower()
 
-    # Keyword-based sarcasm
-    if any(keyword in cleaned for keyword in sarcastic_keywords):
-        return True
+        # 2) Quick negative filters (avoid false positives)
+        # If the comment is extremely short and not an explicit '/s', unlikely sarcasm
+        word_tokens = re.findall(r"\w+", lc)
+        if len(word_tokens) <= 3 and not lc.strip().endswith("/s"):
+            return False
 
-    # Explicit "/s" sarcasm → only valid if at end of comment
-    if cleaned.strip().endswith("/s"):
-        return True
+        # If comment is essentially only a URL or "source: xyz", skip
+        if len(re.sub(r"\W+", "", lc)) == 0:
+            return False
 
-    return False
+        # 3) Strong explicit markers (very high precision)
+        strong_markers = [
+            "/s", "yeah right", "oh sure", "as if", "sure thing", "i'm sure", "right…", "right...", "totally", "nice one", "good one"
+        ]
+        for m in strong_markers:
+            if m in lc:
+                return True
+
+        # 4) Heuristic cues (build a small score)
+        h = 0.0
+        # repeated punctuation (e.g., "!!", "...", "?!")
+        if re.search(r"(\.{3,}|!!|!\?|\\\?\!|\?\!)", cleaned):
+            h += 0.4
+        # emoticons/emoji that often convey irony (eye-roll, smirk, etc.)
+        if re.search(r"🙄|😒|😑|😏|/s", raw):
+            h += 0.7
+        # all-caps shouting (long enough)
+        caps_ratio = _all_caps_ratio(cleaned)
+        if caps_ratio > 0.6 and len(cleaned) > 8:
+            h += 0.5
+        # secondary phrases
+        secondary_phrases = ["what a surprise", "yeah, right", "as if that would", "i bet", "imagine that"]
+        for p in secondary_phrases:
+            if p in lc:
+                h += 0.6
+
+        # 5) If heuristics are very confident -> accept
+        if h >= 1.5:
+            return True
+
+        # 6) If heuristics strongly negative -> reject
+        if h == 0.0 and len(word_tokens) <= 6:
+            # no signals and short ⇒ avoid model call / return False
+            return False
+
+        # 7) Language gating: transformer's most reliable on English; skip heavy model for other languages
+        try:
+            lang = detect(raw)
+        except Exception:
+            lang = "unknown"
+
+        # 8) Transformer (tie-breaker / recall enhancer)
+        # Only use the model if heuristics suggest possible sarcasm OR text is long enough
+        use_model = (h > 0.0) or (len(word_tokens) > 8)
+        if lang in ("en", "unknown") and use_model:
+            label, score = _model_predict_sarcasm(cleaned)
+            if label is None:
+                # model failure → fallback to heuristics threshold
+                return h >= 1.0
+
+            is_irony = any(k in label for k in ("irony", "ironic", "iron"))
+            # Require high model confidence for short texts; allow moderate confidence for longer text with heuristic support
+            if is_irony and score >= 0.85:
+                return True
+            if is_irony and score >= 0.65 and h >= 0.8:
+                return True
+
+        # default conservative decision
+        return False
+
+    except Exception as e:
+        # keep pipeline robust: on unexpected errors, default to non-sarcastic
+        print(f"⚠️ Sarcasm detection error: {e}")
+        return False
+    
 
 # -------------------------------
 # Language Detection
