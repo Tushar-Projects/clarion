@@ -28,6 +28,7 @@ class Post(Base):
     advanced_score = Column(Float, nullable=True)
     score_explanation = Column(JSON, nullable=True)
     community_sentiment = Column(Float, nullable=True)
+    verified_manual = Column(Boolean, default=False) 
 
     source = relationship("Source", back_populates="posts")
     comments = relationship("Comment", back_populates="post")

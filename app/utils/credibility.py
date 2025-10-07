@@ -138,36 +138,86 @@ def apply_fact_check_adjustment(title: str, baseline_score: float | None) -> flo
 
 def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]:
     """
-    Truth-focused advanced scoring with explanation:
-    Returns final_score (float or None) and explanation (dict)
+    Truth-focused advanced scoring with:
+    - Comment-based fake/true signal detection
+    - Sarcasm-aware weighting
+    - Fallback to source reliability, fact check, and article boost
     """
-
     comments = db.query(Comment).filter_by(post_id=post.id).all()
     if not comments and not post.source_id and not post.url:
         return None, {"reason": "insufficient_data"}
 
     explanation = {}
 
-    # ---- Sentiment (light weight) ----
-    if comments:
-        avg_sentiment = sum(
-            c.sentiment_score for c in comments if c.sentiment_score is not None
-        ) / max(len(comments), 1)
+    # ---- Step 1: Filter out noise ----
+    valid_comments = [
+        c for c in comments
+        if c.text
+        and c.text.lower() not in ["[removed]", "[deleted]"]
+        and not c.text.strip().startswith("http")
+        and len(c.text.strip()) > 5
+    ]
 
-        volume_factor = min(1.0, (len(comments) / 20))
-        sentiment_component = avg_sentiment * volume_factor
-    else:
-        sentiment_component = 0
-    explanation["sentiment_component"] = round(sentiment_component, 3)
+    if not valid_comments:
+        explanation["reason"] = "no_valid_comments"
+        valid_comments = []
 
-    # ---- Sarcasm penalty ----
-    sarcasm_ratio = (
-        sum(1 for c in comments if c.is_sarcastic) / max(len(comments), 1)
-    ) if comments else 0
-    sarcasm_component = -0.1 * sarcasm_ratio
-    explanation["sarcasm_component"] = round(sarcasm_component, 3)
+    # ---- Step 2: Detect fake/true signals ----
+    fake_keywords = [
+        "fake", "false", "misinformation", "propaganda", "hoax",
+        "scam", "made up", "not true", "incorrect", "wrong info",
+        "debunked", "fact check", "misleading", "clickbait"
+    ]
+    true_keywords = [
+        "real", "true", "confirmed", "fact", "evidence", "source",
+        "proven", "legit", "accurate", "verified", "authentic",
+        "checked", "supported"
+    ]
 
-    # ---- Source reliability ----
+    fake_votes = 0.0
+    true_votes = 0.0
+    sarcasm_count = 0
+
+    for c in valid_comments:
+        text = c.text.lower()
+        sarcastic = bool(c.is_sarcastic)
+        if sarcastic:
+            sarcasm_count += 1
+
+        # Detect fake/true claims with sarcasm-weighted impact
+        if any(word in text for word in fake_keywords):
+            fake_votes += 0.3 if sarcastic else 1.0
+        elif any(word in text for word in true_keywords):
+            true_votes += 0.3 if sarcastic else 1.0
+
+    total_comments = len(valid_comments)
+    fake_ratio = fake_votes / total_comments if total_comments else 0
+    true_ratio = true_votes / total_comments if total_comments else 0
+    sarcasm_ratio = sarcasm_count / total_comments if total_comments else 0
+
+    explanation["fake_ratio"] = round(fake_ratio, 3)
+    explanation["true_ratio"] = round(true_ratio, 3)
+    explanation["sarcasm_ratio"] = round(sarcasm_ratio, 3)
+
+    # ---- Step 3: Compute comment-driven credibility ----
+    comment_component = 0
+    if fake_ratio >= 0.2:
+        comment_component -= 0.4
+    elif fake_ratio >= 0.3:
+        comment_component -= 0.6
+
+    if true_ratio >= 0.2:
+        comment_component += 0.4
+    elif true_ratio >= 0.3:
+        comment_component += 0.6
+
+    # Apply sarcasm dampening (Option 2)
+    if sarcasm_ratio > 0.3:
+        comment_component *= 0.8  # reduce confidence
+
+    explanation["comment_component"] = round(comment_component, 3)
+
+    # ---- Step 4: Source reliability ----
     source_component = 0
     source_domain = None
     if post.source_id:
@@ -179,8 +229,8 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
     if source_domain:
         explanation["source_domain"] = source_domain
 
-    # ---- Fact-check adjustment ----
-    baseline_for_factcheck = sentiment_component + source_component
+    # ---- Step 5: Google Fact Check ----
+    baseline_for_factcheck = comment_component + source_component
     factcheck_component = apply_fact_check_adjustment(
         post.title, baseline_for_factcheck
     )
@@ -190,11 +240,14 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
         factcheck_component = 0
     explanation["factcheck_component"] = round(factcheck_component, 3)
 
-    # ---- Article boost ----
+    # ---- Step 6: Article boost ----
     article_boost = 0
     boost_reason = None
     if post.url:
-        trusted_sources = ["reuters.com", "bbc.com", "nytimes.com", "apnews.com", "aljazeera.com", "theguardian.com"]
+        trusted_sources = [
+            "reuters.com", "bbc.com", "nytimes.com", "apnews.com",
+            "aljazeera.com", "theguardian.com", "washingtonpost.com"
+        ]
         if any(domain in post.url for domain in trusted_sources):
             article_boost = 0.3
             boost_reason = f"Trusted domain ({post.url})"
@@ -206,19 +259,32 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
     if boost_reason:
         explanation["article_reason"] = boost_reason
 
-    # ---- Final score ----
+    # ---- Step 7: Final weighted formula ----
     final_score = (
-        (0.15 * sentiment_component) +
-        (0.10 * sarcasm_component) +
-        (0.30 * source_component) +
-        (0.40 * factcheck_component) +
+        (0.4 * comment_component) +
+        (0.2 * source_component) +
+        (0.3 * factcheck_component) +
         article_boost
     )
-    final_score = max(-1, min(1, final_score))
 
+    final_score = max(-1, min(1, final_score))
     explanation["final_score"] = round(final_score, 3)
 
+    # ---- Step 8: Fallback for no truth/fake comments ----
+    if fake_ratio == 0 and true_ratio == 0:
+        explanation["reason"] = "no_truth_or_fake_mentions"
+        final_score = (
+            (0.5 * source_component) +
+            (0.4 * factcheck_component) +
+            article_boost
+        )
+        final_score = max(-1, min(1, final_score))
+        explanation["fallback_score"] = round(final_score, 3)
+
     return final_score, explanation
+
+
+
 
 
 # -------------------------------
