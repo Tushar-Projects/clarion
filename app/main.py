@@ -99,6 +99,10 @@ def check_url():
     db = SessionLocal()
     post = db.query(Post).filter_by(id=post_id).first()
     result = post_to_dict(post, include_comments=True)
+    if post:
+        post.verified_manual = True
+        db.add(post)
+        db.commit()
     db.close()
 
     return jsonify(result)
