@@ -55,97 +55,89 @@ def _all_caps_ratio(text: str) -> float:
 # -------------------------------
 # Sarcasm Detection
 # -------------------------------
-def detect_sarcasm(text: str) -> bool:
+def detect_sarcasm(text: str, sentiment_score: float | None = None) -> bool:
     """
-    Ensemble sarcasm detector:
-    - Strong rule-based checks for high-precision detection
-    - Heuristic scoring for medium-confidence cases
-    - Transformer model only as a tie-breaker (and only when useful)
-    This function is deliberately conservative to minimize false positives.
+    Enhanced hybrid sarcasm detector:
+    - Combines explicit cues, heuristic scoring, and a transformer tie-breaker
+    - Adds sentiment flip detection (positive words but negative tone, etc.)
     """
+
     try:
         if not text or not text.strip():
             return False
 
-        # 1) Pre-cleaning
         raw = text
         cleaned = _strip_markup_and_urls(raw)
         lc = cleaned.lower()
 
-        # 2) Quick negative filters (avoid false positives)
-        # If the comment is extremely short and not an explicit '/s', unlikely sarcasm
+        # 1️⃣ Quick negative filters
         word_tokens = re.findall(r"\w+", lc)
         if len(word_tokens) <= 3 and not lc.strip().endswith("/s"):
             return False
-
-        # If comment is essentially only a URL or "source: xyz", skip
         if len(re.sub(r"\W+", "", lc)) == 0:
             return False
 
-        # 3) Strong explicit markers (very high precision)
+        # 2️⃣ Strong explicit markers
         strong_markers = [
-            "/s", "yeah right", "oh sure", "as if", "sure thing", "i'm sure", "right…", "right...", "totally", "nice one", "good one"
+            "/s", "yeah right", "oh sure", "as if", "sure thing",
+            "i'm sure", "right…", "right...", "totally", "nice one", "good one"
         ]
-        for m in strong_markers:
-            if m in lc:
-                return True
+        if any(m in lc for m in strong_markers):
+            return True
 
-        # 4) Heuristic cues (build a small score)
+        # 3️⃣ Heuristic cues
         h = 0.0
-        # repeated punctuation (e.g., "!!", "...", "?!")
         if re.search(r"(\.{3,}|!!|!\?|\\\?\!|\?\!)", cleaned):
             h += 0.4
-        # emoticons/emoji that often convey irony (eye-roll, smirk, etc.)
         if re.search(r"🙄|😒|😑|😏|/s", raw):
             h += 0.7
-        # all-caps shouting (long enough)
         caps_ratio = _all_caps_ratio(cleaned)
         if caps_ratio > 0.6 and len(cleaned) > 8:
             h += 0.5
-        # secondary phrases
-        secondary_phrases = ["what a surprise", "yeah, right", "as if that would", "i bet", "imagine that"]
-        for p in secondary_phrases:
+        for p in ["what a surprise", "yeah, right", "as if that would", "i bet", "imagine that"]:
             if p in lc:
                 h += 0.6
 
-        # 5) If heuristics are very confident -> accept
+        # 4️⃣ Sentiment flip logic — irony detection via polarity reversal
+        # Examples:
+        #   "Great job ruining everything" → positive words + negative sentiment
+        #   "Wonderful disaster" → strong mismatch between tone & sentiment
+        if sentiment_score is not None:
+            if sentiment_score < -0.3:  # overall negative tone
+                if any(w in lc for w in ["great", "amazing", "wonderful", "fantastic", "perfect", "nice work"]):
+                    h += 0.8  # likely sarcastic
+            elif sentiment_score > 0.3:  # overall positive tone
+                if any(w in lc for w in ["terrible", "awful", "disaster", "failure", "horrible", "bad job"]):
+                    h += 0.8
+
+        # If heuristics very confident
         if h >= 1.5:
             return True
-
-        # 6) If heuristics strongly negative -> reject
         if h == 0.0 and len(word_tokens) <= 6:
-            # no signals and short ⇒ avoid model call / return False
             return False
 
-        # 7) Language gating: transformer's most reliable on English; skip heavy model for other languages
+        # 5️⃣ Transformer tie-breaker (for borderline or long text)
         try:
             lang = detect(raw)
         except Exception:
             lang = "unknown"
 
-        # 8) Transformer (tie-breaker / recall enhancer)
-        # Only use the model if heuristics suggest possible sarcasm OR text is long enough
         use_model = (h > 0.0) or (len(word_tokens) > 8)
         if lang in ("en", "unknown") and use_model:
             label, score = _model_predict_sarcasm(cleaned)
-            if label is None:
-                # model failure → fallback to heuristics threshold
-                return h >= 1.0
+            if label:
+                is_irony = any(k in label for k in ("irony", "ironic", "iron"))
+                if is_irony and score >= 0.85:
+                    return True
+                if is_irony and score >= 0.65 and h >= 0.8:
+                    return True
 
-            is_irony = any(k in label for k in ("irony", "ironic", "iron"))
-            # Require high model confidence for short texts; allow moderate confidence for longer text with heuristic support
-            if is_irony and score >= 0.85:
-                return True
-            if is_irony and score >= 0.65 and h >= 0.8:
-                return True
-
-        # default conservative decision
-        return False
+        return h >= 1.3
 
     except Exception as e:
-        # keep pipeline robust: on unexpected errors, default to non-sarcastic
         print(f"⚠️ Sarcasm detection error: {e}")
         return False
+
     
 
 # -------------------------------
@@ -226,7 +218,8 @@ def _process_post_comments(db, post, batch_size: int):
                     comment.sentiment_score = 0
 
                 # Sarcasm Detection
-                comment.is_sarcastic = detect_sarcasm(comment.text)
+                comment.is_sarcastic = detect_sarcasm(comment.text, comment.sentiment_score)
+
 
                 db.add(comment)
 

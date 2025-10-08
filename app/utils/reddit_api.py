@@ -89,10 +89,13 @@ def fetch_and_store_posts(subreddit_name="news", limit=10):
                 if source:
                     source_id = source.id
 
+            # ✅ updated: track upvotes and comment counts
             if existing_post:
                 existing_post.title = clean_text(submission.title)
                 existing_post.url = submission.url
                 existing_post.source_id = source_id
+                existing_post.upvotes = submission.score or 0
+                existing_post.num_comments = submission.num_comments or 0
                 db.add(existing_post)
                 post_record = existing_post
             else:
@@ -101,7 +104,9 @@ def fetch_and_store_posts(subreddit_name="news", limit=10):
                     post_id=submission.id,
                     title=clean_text(submission.title),
                     url=submission.url,
-                    source_id=source_id
+                    source_id=source_id,
+                    upvotes=submission.score or 0,
+                    num_comments=submission.num_comments or 0,
                 )
                 db.add(new_post)
                 db.commit()
@@ -155,23 +160,26 @@ def fetch_post_by_url(url: str, comment_limit: int = 20):
             if source:
                 source_id = source.id
 
+        # ✅ updated: include upvotes and num_comments
         if existing_post:
-            # Update existing
             existing_post.title = clean_text(submission.title)
             existing_post.url = submission.url
             existing_post.source_id = source_id
+            existing_post.upvotes = submission.score or 0
+            existing_post.num_comments = submission.num_comments or 0
             db.add(existing_post)
             db.commit()
             db.refresh(existing_post)
             post_record = existing_post
         else:
-            # Insert new
             new_post = Post(
                 platform="Reddit",
                 post_id=submission.id,
                 title=clean_text(submission.title),
                 url=submission.url,
-                source_id=source_id
+                source_id=source_id,
+                upvotes=submission.score or 0,
+                num_comments=submission.num_comments or 0,
             )
             db.add(new_post)
             db.commit()
