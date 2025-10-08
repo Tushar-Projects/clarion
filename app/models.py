@@ -43,5 +43,7 @@ class Comment(Base):
     post_id = Column(Integer, ForeignKey("posts.id"))
     sentiment_score = Column(Float, nullable=True)  # <-- Add this
     is_sarcastic = Column(Boolean, default=False)
-    post = relationship("Post", back_populates="comments")
     language = Column(String, nullable=True)
+
+    post = relationship("Post", back_populates="comments")
+
