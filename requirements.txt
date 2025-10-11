@@ -20,3 +20,5 @@ requests
 protobuf
 sentencepiece
 langdetect
+bs4
+newspaper3k

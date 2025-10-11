@@ -75,42 +75,73 @@ def search_posts():
     db.close()
     return jsonify(results)
 
-# 4️⃣ Check credibility for a pasted Reddit URL
+# 4️⃣ Check credibility for a pasted URL (Reddit, Twitter, or News)
 @app.route("/check_url", methods=["POST"])
 def check_url():
     data = request.get_json()
-    url = data.get("url")
+    url = data.get("url", "").strip()
 
-    if not url or "reddit.com" not in url:
-        return jsonify({"error": "Only Reddit URLs are supported for now"}), 400
+    if not url:
+        return jsonify({"error": "Please provide a valid URL"}), 400
 
-    # ✅ Fetch exact Reddit post by URL
-    post_id = reddit_api.fetch_post_by_url(url)
-    if not post_id:
-        return jsonify({"error": "Could not fetch Reddit post"}), 500
-
-    # ✅ Force NLP pipeline for this post
-    nlp_pipeline.process_single_post(post_id)
-
-    # ✅ Force credibility calculation for this post
-    credibility.compute_single_post(post_id)
-
-    # ✅ Query DB for updated post
     db = SessionLocal()
-    post = db.query(Post).filter_by(id=post_id).first()
-    result = post_to_dict(post, include_comments=True)
-    if post:
-        post.verified_manual = True
-        db.add(post)
-        db.commit()
-    db.close()
+    post_id = None
+    platform = "Unknown"
 
-    return jsonify(result)
+    try:
+        # --- Case 1: Reddit ---
+        if "reddit.com" in url:
+            platform = "Reddit"
+            post_id = reddit_api.fetch_post_by_url(url)
+            if not post_id:
+                return jsonify({"error": "Could not fetch Reddit post"}), 500
+
+            # Run NLP + credibility for Reddit
+            nlp_pipeline.process_single_post(post_id)
+            credibility.compute_single_post(post_id)
+
+        # --- Case 2: Twitter ---
+        elif "twitter.com" in url or "x.com" in url:
+            platform = "Twitter"
+            # Placeholder for Twitter integration (to be added later)
+            return jsonify({
+                "platform": platform,
+                "message": "Twitter analysis coming soon"
+            }), 501
+
+        # --- Case 3: News Articles ---
+        else:
+            from app.utils import news_scraper
+            platform = "News"
+            post_id = news_scraper.fetch_and_store_article(url)
+            if not post_id:
+                return jsonify({"error": "Could not fetch article"}), 500
+
+            # Run credibility scoring for news
+            credibility.compute_single_post(post_id)
+
+        # --- Mark as manually verified ---
+        post = db.query(Post).filter_by(id=post_id).first()
+        if post:
+            post.verified_manual = True
+            post.platform = platform
+            db.add(post)
+            db.commit()
+
+            result = post_to_dict(post, include_comments=False)
+            result["platform"] = platform
+        else:
+            result = {"error": "Post not found after processing", "platform": platform}
+
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"❌ Error in /check_url: {e}")
+        return jsonify({"error": str(e), "platform": platform}), 500
+    finally:
+        db.close()
 
 
-@app.route("/check", methods=["GET"])
-def check_page():
-    return render_template("check_url.html")
 
 if __name__ == "__main__":
     app.run(debug=True)

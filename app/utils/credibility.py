@@ -139,10 +139,73 @@ def apply_fact_check_adjustment(title: str, baseline_score: float | None) -> flo
 def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]:
     """
     Truth-focused advanced scoring with:
-    - Comment-based fake/true signal detection
+    - Comment-based fake/true signal detection (for Reddit posts)
     - Sarcasm-aware weighting
     - Fallback to source reliability, fact check, and article boost
+    - Special handling for standalone news articles
     """
+    explanation = {}
+
+    # 📰 --- NEWS ARTICLE MODE ---
+    if post.platform == "News":
+        explanation["reason"] = "news_article_mode"
+
+        # Step 1: Determine source reliability
+        source_component = 0.0
+        source_domain = None
+        if post.source_id:
+            source = db.query(Source).filter_by(id=post.source_id).first()
+            if source and source.reliability_score is not None:
+                source_component = source.reliability_score
+                source_domain = source.url_pattern
+        else:
+            # Unknown article source — small neutral credit
+            source_component = 0.1
+
+        explanation["source_component"] = round(source_component, 3)
+        if source_domain:
+            explanation["source_domain"] = source_domain
+
+        # Step 2: Google Fact Check API
+        factcheck_component = 0.0
+        try:
+            factchecked = apply_fact_check_adjustment(post.title, source_component)
+            if factchecked is not None:
+                factcheck_component = factchecked - source_component
+        except Exception as e:
+            print(f"⚠️ Fact check error (news mode): {e}")
+        explanation["factcheck_component"] = round(factcheck_component, 3)
+
+        # Step 3: Article Boost (trusted or general)
+        article_boost = 0
+        boost_reason = None
+        if post.url:
+            trusted_sources = [
+                "reuters.com", "bbc.com", "nytimes.com", "apnews.com",
+                "aljazeera.com", "theguardian.com", "washingtonpost.com"
+            ]
+            if any(domain in post.url for domain in trusted_sources):
+                article_boost = 0.3
+                boost_reason = f"Trusted domain ({post.url})"
+            elif post.url.startswith("http") and not post.url.endswith((".jpg", ".png", ".gif")):
+                article_boost = 0.1
+                boost_reason = f"External article link ({post.url})"
+        explanation["article_boost"] = article_boost
+        if boost_reason:
+            explanation["article_reason"] = boost_reason
+
+        # Step 4: Weighted formula for news articles
+        final_score = (
+            (0.7 * source_component) +
+            (0.2 * factcheck_component) +
+            article_boost
+        )
+        final_score = max(-1, min(1, final_score))
+        explanation["final_score"] = round(final_score, 3)
+
+        return final_score, explanation
+
+    # 🧩 --- REDDIT / OTHER PLATFORM MODE (existing logic) ---
     comments = db.query(Comment).filter_by(post_id=post.id).all()
     if not comments and not post.source_id and not post.url:
         return None, {"reason": "insufficient_data"}
@@ -211,9 +274,9 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
     elif true_ratio >= 0.3:
         comment_component += 0.6
 
-    # Apply sarcasm dampening (Option 2)
+    # Apply sarcasm dampening
     if sarcasm_ratio > 0.3:
-        comment_component *= 0.8  # reduce confidence
+        comment_component *= 0.8
 
     explanation["comment_component"] = round(comment_component, 3)
 
@@ -282,6 +345,7 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
         explanation["fallback_score"] = round(final_score, 3)
 
     return final_score, explanation
+
 
 
 
