@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request, render_template
 from app.utils.database import SessionLocal
 from app.models import Post, Source, Comment
-from app.utils import reddit_api, nlp_pipeline, credibility
+from app.utils import reddit_api, nlp_pipeline, credibility, news_scraper
 
 app = Flask(__name__)
 
@@ -141,6 +141,9 @@ def check_url():
     finally:
         db.close()
 
+@app.route("/check", methods=["GET"])
+def check_page():
+    return render_template("check_url.html")
 
 
 if __name__ == "__main__":

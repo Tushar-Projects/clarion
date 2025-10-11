@@ -142,31 +142,32 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
     - Comment-based fake/true signal detection (for Reddit posts)
     - Sarcasm-aware weighting
     - Fallback to source reliability, fact check, and article boost
-    - Special handling for standalone news articles
+    - Specialized handling for standalone News articles (no comments)
     """
     explanation = {}
 
     # 📰 --- NEWS ARTICLE MODE ---
-    if post.platform == "News":
-        explanation["reason"] = "news_article_mode"
+    if post.platform and post.platform.lower() == "news":
+        explanation["mode"] = "news_article_mode"
 
-        # Step 1: Determine source reliability
+        # --- Step 1: Source reliability ---
         source_component = 0.0
         source_domain = None
         if post.source_id:
             source = db.query(Source).filter_by(id=post.source_id).first()
-            if source and source.reliability_score is not None:
-                source_component = source.reliability_score
+            if source:
+                # default to neutral 0.2 if not explicitly rated
+                source_component = source.reliability_score or 0.2
                 source_domain = source.url_pattern
         else:
-            # Unknown article source — small neutral credit
+            # no source_id — minimal default reliability
             source_component = 0.1
 
         explanation["source_component"] = round(source_component, 3)
         if source_domain:
             explanation["source_domain"] = source_domain
 
-        # Step 2: Google Fact Check API
+        # --- Step 2: Google Fact Check API adjustment ---
         factcheck_component = 0.0
         try:
             factchecked = apply_fact_check_adjustment(post.title, source_component)
@@ -174,10 +175,11 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
                 factcheck_component = factchecked - source_component
         except Exception as e:
             print(f"⚠️ Fact check error (news mode): {e}")
+
         explanation["factcheck_component"] = round(factcheck_component, 3)
 
-        # Step 3: Article Boost (trusted or general)
-        article_boost = 0
+        # --- Step 3: Article trust boost ---
+        article_boost = 0.0
         boost_reason = None
         if post.url:
             trusted_sources = [
@@ -190,18 +192,30 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
             elif post.url.startswith("http") and not post.url.endswith((".jpg", ".png", ".gif")):
                 article_boost = 0.1
                 boost_reason = f"External article link ({post.url})"
-        explanation["article_boost"] = article_boost
+            else:
+                article_boost = 0.05
+                boost_reason = "Minimal boost (unrecognized format)"
+
+        explanation["article_boost"] = round(article_boost, 3)
         if boost_reason:
             explanation["article_reason"] = boost_reason
 
-        # Step 4: Weighted formula for news articles
+        # --- Step 4: Weighted final score ---
+        # Higher weight for verified sources + moderate for fact check
         final_score = (
-            (0.7 * source_component) +
-            (0.2 * factcheck_component) +
+            (0.5 * source_component) +
+            (0.3 * factcheck_component) +
             article_boost
         )
+
         final_score = max(-1, min(1, final_score))
         explanation["final_score"] = round(final_score, 3)
+
+        # --- Step 5: Handle missing signals gracefully ---
+        if source_component == 0.0 and factcheck_component == 0.0:
+            explanation["reason"] = "minimal_info_fallback"
+            final_score = 0.1  # neutral default score
+            explanation["final_score"] = final_score
 
         return final_score, explanation
 
@@ -247,7 +261,6 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
         if sarcastic:
             sarcasm_count += 1
 
-        # Detect fake/true claims with sarcasm-weighted impact
         if any(word in text for word in fake_keywords):
             fake_votes += 0.3 if sarcastic else 1.0
         elif any(word in text for word in true_keywords):
@@ -262,19 +275,18 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
     explanation["true_ratio"] = round(true_ratio, 3)
     explanation["sarcasm_ratio"] = round(sarcasm_ratio, 3)
 
-    # ---- Step 3: Compute comment-driven credibility ----
+    # ---- Step 3: Comment-driven credibility ----
     comment_component = 0
-    if fake_ratio >= 0.2:
-        comment_component -= 0.4
-    elif fake_ratio >= 0.3:
+    if fake_ratio >= 0.3:
         comment_component -= 0.6
+    elif fake_ratio >= 0.2:
+        comment_component -= 0.4
 
-    if true_ratio >= 0.2:
-        comment_component += 0.4
-    elif true_ratio >= 0.3:
+    if true_ratio >= 0.3:
         comment_component += 0.6
+    elif true_ratio >= 0.2:
+        comment_component += 0.4
 
-    # Apply sarcasm dampening
     if sarcasm_ratio > 0.3:
         comment_component *= 0.8
 
@@ -292,11 +304,9 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
     if source_domain:
         explanation["source_domain"] = source_domain
 
-    # ---- Step 5: Google Fact Check ----
+    # ---- Step 5: Fact check ----
     baseline_for_factcheck = comment_component + source_component
-    factcheck_component = apply_fact_check_adjustment(
-        post.title, baseline_for_factcheck
-    )
+    factcheck_component = apply_fact_check_adjustment(post.title, baseline_for_factcheck)
     if factcheck_component is not None:
         factcheck_component = factcheck_component - baseline_for_factcheck
     else:
@@ -318,6 +328,7 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
              and "redd.it" not in post.url:
             article_boost = 0.1
             boost_reason = f"External article link ({post.url})"
+
     explanation["article_boost"] = article_boost
     if boost_reason:
         explanation["article_reason"] = boost_reason
@@ -333,7 +344,7 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
     final_score = max(-1, min(1, final_score))
     explanation["final_score"] = round(final_score, 3)
 
-    # ---- Step 8: Fallback for no truth/fake comments ----
+    # ---- Step 8: Fallback ----
     if fake_ratio == 0 and true_ratio == 0:
         explanation["reason"] = "no_truth_or_fake_mentions"
         final_score = (
@@ -345,6 +356,7 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
         explanation["fallback_score"] = round(final_score, 3)
 
     return final_score, explanation
+
 
 
 
