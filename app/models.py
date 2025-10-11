@@ -9,7 +9,8 @@ class Source(Base):
     name = Column(String, nullable=False)
     url_pattern = Column(String, nullable=False, unique=True)
     trust_score = Column(Integer, default=5)
-
+    reliability_score = Column(Float, nullable=True, default=0.0)
+    
     posts = relationship("Post", back_populates="source")
 
 
@@ -18,7 +19,7 @@ class Post(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     platform = Column(String, nullable=False)
-    post_id = Column(String, nullable=False, unique=True)
+    post_id = Column(String, nullable=True, unique=True)
     title = Column(Text, nullable=False)
     url = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())

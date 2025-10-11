@@ -61,17 +61,26 @@ def fetch_and_store_article(url: str):
     try:
         domain = extract_domain(url)
         data = scrape_article_content(url)
-        if not data["title"] or not data["text"]:
+        if not data["title"] and not data["text"]:
             print("⚠️ No valid content found in article.")
             return None
+        elif len(data["text"]) < 100:
+            print(f"⚠️ Article text short ({len(data['text'])} chars), keeping anyway.")
+
 
         # Match or create Source
         source = db.query(Source).filter(Source.url_pattern.ilike(f"%{domain}%")).first()
         if not source:
-            source = Source(name=domain.title(), url_pattern=domain, reliability_score=0.0)
-            db.add(source)
-            db.commit()
-            db.refresh(source)
+            try:
+        # Some DB schemas have reliability_score, others don’t
+                source = Source(name=domain.title(), url_pattern=domain)
+                if hasattr(Source, "reliability_score"):
+                    setattr(source, "reliability_score", 0.0)
+                db.add(source)
+                db.commit()
+                db.refresh(source)
+            except Exception as e:
+                print(f"⚠️ Error creating source entry: {e}")
 
         # Check if post already exists
         existing_post = db.query(Post).filter_by(url=url).first()
