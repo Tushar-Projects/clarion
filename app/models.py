@@ -9,7 +9,7 @@ class Source(Base):
     name = Column(String, nullable=False)
     url_pattern = Column(String, nullable=False, unique=True)
     trust_score = Column(Integer, default=5)
-    reliability_score = Column(Float, nullable=True, default=0.0)
+    reliability_score = Column(Float, nullable=True, default=0.2)
     
     posts = relationship("Post", back_populates="source")
 

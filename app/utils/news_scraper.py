@@ -61,8 +61,9 @@ def fetch_and_store_article(url: str):
     try:
         domain = extract_domain(url)
         data = scrape_article_content(url)
-        if not data["title"] and not data["text"]:
-            print("⚠️ No valid content found in article.")
+        if not data["text"] or len(data["text"]) < 100:
+            print("⚠️ Weak article content, using title-only mode.")
+            data["text"] = data["title"]
             return None
         elif len(data["text"]) < 100:
             print(f"⚠️ Article text short ({len(data['text'])} chars), keeping anyway.")
