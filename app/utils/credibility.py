@@ -3,6 +3,7 @@ import requests
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 from sqlalchemy import JSON
+from urllib.parse import urlparse
 
 
 from app.utils.database import SessionLocal
@@ -10,7 +11,7 @@ from app.models import Post, Comment, Source
 
 # Load env vars
 load_dotenv()
-FACT_CHECK_API_KEY = os.getenv("FACT_CHECK_API_KEY")
+FACT_CHECK_API_KEY = os.getenv("GOOGLE_FACTCHECK_API_KEY")
 
 # -------------------------------
 # Baseline Credibility Calculation
@@ -100,50 +101,84 @@ def compute_community_sentiment(post: Post, db: Session) -> float | None:
 # -------------------------------
 # Google Fact Check Adjustment
 # -------------------------------
-def apply_fact_check_adjustment(title: str, baseline_score: float | None) -> float | None:
+def apply_fact_check_adjustment(title: str, baseline_score: float | None, url: str | None = None) -> float | None:
     """
-    Query Google Fact Check API and adjust credibility score:
-    - If a claim review is found with 'False' → decrease score
-    - If 'True' or 'Correct' → increase score
-    If baseline_score is None, still return None unless fact-check yields a strong result.
+    Query Google Fact Check API and adjust credibility score.
     """
+    print(f"🔍 Applying fact check adjustment for title: {title}, url: {url}")  # Debug log
     if not FACT_CHECK_API_KEY:
+        print("⚠️ FACT_CHECK_API_KEY not set")  # Debug log
         return baseline_score
 
-    url = "https://factchecktools.googleapis.com/v1alpha1/claims:search"
-    params = {"query": title, "key": FACT_CHECK_API_KEY}
+    # --- Step 1: Auto-detect known fact-checking domains ---
+    known_factcheck_domains = [
+        "factly.in", "boomlive.in", "altnews.in", "snopes.com",
+        "politifact.com", "factcheck.org", "afp.com", "apnews.com/fact-check",
+        "reuters.com/fact-check", "thequint.com/news/webqoof", "bbc.com/realitycheck"
+    ]
+
+    if url:
+        # Extract the domain name from the URL
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc.lower()  # Normalize to lowercase
+        domain = domain.replace("www.", "")  # Remove 'www.' if present
+
+        if any(known_domain in domain for known_domain in known_factcheck_domains):
+            print(f"✅ Fact-check site detected ({domain}) — auto credibility boost.")
+            return (baseline_score or 0.0) + 0.4
+
+    # --- Step 2: Google Fact Check API call ---
+    api_url = "https://factchecktools.googleapis.com/v1alpha1/claims:search"
+    query_text = " ".join(title.split()[:6])
+    params = {"query": f"{query_text} fact check", "key": FACT_CHECK_API_KEY}
+
     try:
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(api_url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
 
-        if "claims" in data:
-            for claim in data["claims"]:
-                if "claimReview" in claim:
-                    for review in claim["claimReview"]:
-                        rating = review.get("textualRating", "").lower()
-                        if "false" in rating or "pants on fire" in rating:
-                            return (baseline_score or 0.0) - 0.3
-                        elif (
-                            "true" in rating
-                            or "correct" in rating
-                            or "accurate" in rating
-                        ):
-                            return (baseline_score or 0.0) + 0.3
-    except Exception as e:
-        print(f"⚠️ Fact check API error: {e}")
+        # --- Step 3: Handle empty responses gracefully ---
+        if "claims" not in data or len(data["claims"]) == 0:
+            print("ℹ️ No claims found — neutral fallback.")
+            return (baseline_score or 0.0) + 0.05
 
-    return baseline_score
+        # --- Step 4: Parse claim reviews for truth / falsity indicators ---
+        for claim in data["claims"]:
+            if "claimReview" not in claim:
+                continue
+
+            for review in claim["claimReview"]:
+                rating = (
+                    review.get("textualRating")
+                    or review.get("rating", {}).get("text")
+                    or ""
+                ).lower()
+
+                if any(k in rating for k in ["false", "pants on fire", "fake", "incorrect", "misleading"]):
+                    print(f"❌ Fact-check verdict: {rating}")
+                    return (baseline_score or 0.0) - 0.4
+                elif any(k in rating for k in ["true", "correct", "accurate", "mostly true", "verified"]):
+                    print(f"✅ Fact-check verdict: {rating}")
+                    return (baseline_score or 0.0) + 0.4
+
+        # --- Step 5: If no recognizable verdict, apply mild bump ---
+        print("ℹ️ No definitive verdict — soft neutral bump.")
+        return (baseline_score or 0.0) + 0.05
+
+    except Exception as e:
+        print(f"⚠️ Fact check API error: {e}")  # Debug log
+        return (baseline_score or 0.0)
+
+
 
 
 def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]:
     """
     Truth-focused advanced scoring with:
-    - Comment-based fake/true signal detection (for Reddit posts)
-    - Sarcasm-aware weighting
-    - Fallback to source reliability, fact check, and article boost
-    - Specialized handling for standalone News articles (no comments)
+    - Reddit: comment-based credibility + sarcasm awareness
+    - News: source reliability + fact check + contextual article boost
     """
+    print(f"🔍 Computing advanced score for post: {post.id}, url: {post.url}")  # Debug log
     explanation = {}
 
     # 📰 --- NEWS ARTICLE MODE ---
@@ -156,29 +191,38 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
         if post.source_id:
             source = db.query(Source).filter_by(id=post.source_id).first()
             if source:
-                # default to neutral 0.2 if not explicitly rated
                 source_component = source.reliability_score or 0.2
                 source_domain = source.url_pattern
         else:
-            # no source_id — minimal default reliability
-            source_component = 0.1
+            source_component = 0.1  # minimal baseline
 
         explanation["source_component"] = round(source_component, 3)
         if source_domain:
             explanation["source_domain"] = source_domain
 
-        # --- Step 2: Google Fact Check API adjustment ---
+        # --- Step 2: Fact check adjustment ---
         factcheck_component = 0.0
         try:
-            factchecked = apply_fact_check_adjustment(post.title, source_component)
-            if factchecked is not None:
-                factcheck_component = factchecked - source_component
+            factchecked_score = apply_fact_check_adjustment(post.title, source_component, post.url)
+            print(f"✅ Fact-checked score: {factchecked_score}")  # Debug log
+            if factchecked_score is not None:
+                factcheck_component = factchecked_score - source_component
+            else:
+                factcheck_component = 0
+            print(f"🔎 Fact-check component: {factcheck_component}")  # Debug log
         except Exception as e:
-            print(f"⚠️ Fact check error (news mode): {e}")
+            print(f"⚠️ Fact check error (news mode): {e}")  # Debug log
+            explanation["factcheck_error"] = str(e)
 
         explanation["factcheck_component"] = round(factcheck_component, 3)
 
-        # --- Step 3: Article trust boost ---
+        # --- Step 3: Sentiment influence (if available) ---
+        sentiment_component = 0.0
+        if getattr(post, "sentiment_score", None) is not None:
+            sentiment_component = post.sentiment_score * 0.1
+            explanation["sentiment_component"] = round(sentiment_component, 3)
+
+        # --- Step 4: Article trust boost ---
         article_boost = 0.0
         boost_reason = None
         if post.url:
@@ -194,32 +238,32 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
                 boost_reason = f"External article link ({post.url})"
             else:
                 article_boost = 0.05
-                boost_reason = "Minimal boost (unrecognized format)"
+                boost_reason = "Minimal boost (unrecognized domain)"
 
         explanation["article_boost"] = round(article_boost, 3)
         if boost_reason:
             explanation["article_reason"] = boost_reason
 
-        # --- Step 4: Weighted final score ---
-        # Higher weight for verified sources + moderate for fact check
+        # --- Step 5: Weighted final score ---
         final_score = (
-            (0.5 * source_component) +
-            (0.3 * factcheck_component) +
+            (0.55 * source_component) +
+            (0.25 * factcheck_component) +
+            (0.1 * sentiment_component) +
             article_boost
         )
 
         final_score = max(-1, min(1, final_score))
         explanation["final_score"] = round(final_score, 3)
 
-        # --- Step 5: Handle missing signals gracefully ---
+        # --- Step 6: Fallback when data is minimal ---
         if source_component == 0.0 and factcheck_component == 0.0:
             explanation["reason"] = "minimal_info_fallback"
-            final_score = 0.1  # neutral default score
+            final_score = 0.1
             explanation["final_score"] = final_score
 
         return final_score, explanation
 
-    # 🧩 --- REDDIT / OTHER PLATFORM MODE (existing logic) ---
+    # 🧩 --- REDDIT / OTHER PLATFORM MODE ---
     comments = db.query(Comment).filter_by(post_id=post.id).all()
     if not comments and not post.source_id and not post.url:
         return None, {"reason": "insufficient_data"}
@@ -251,10 +295,7 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
         "checked", "supported"
     ]
 
-    fake_votes = 0.0
-    true_votes = 0.0
-    sarcasm_count = 0
-
+    fake_votes, true_votes, sarcasm_count = 0.0, 0.0, 0
     for c in valid_comments:
         text = c.text.lower()
         sarcastic = bool(c.is_sarcastic)
@@ -271,9 +312,11 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
     true_ratio = true_votes / total_comments if total_comments else 0
     sarcasm_ratio = sarcasm_count / total_comments if total_comments else 0
 
-    explanation["fake_ratio"] = round(fake_ratio, 3)
-    explanation["true_ratio"] = round(true_ratio, 3)
-    explanation["sarcasm_ratio"] = round(sarcasm_ratio, 3)
+    explanation.update({
+        "fake_ratio": round(fake_ratio, 3),
+        "true_ratio": round(true_ratio, 3),
+        "sarcasm_ratio": round(sarcasm_ratio, 3)
+    })
 
     # ---- Step 3: Comment-driven credibility ----
     comment_component = 0
@@ -306,7 +349,7 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
 
     # ---- Step 5: Fact check ----
     baseline_for_factcheck = comment_component + source_component
-    factcheck_component = apply_fact_check_adjustment(post.title, baseline_for_factcheck)
+    factcheck_component = apply_fact_check_adjustment(post.title, baseline_for_factcheck,post.url)
     if factcheck_component is not None:
         factcheck_component = factcheck_component - baseline_for_factcheck
     else:
@@ -328,7 +371,6 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
              and "redd.it" not in post.url:
             article_boost = 0.1
             boost_reason = f"External article link ({post.url})"
-
     explanation["article_boost"] = article_boost
     if boost_reason:
         explanation["article_reason"] = boost_reason
@@ -356,6 +398,7 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
         explanation["fallback_score"] = round(final_score, 3)
 
     return final_score, explanation
+
 
 
 
