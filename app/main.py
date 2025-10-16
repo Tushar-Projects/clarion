@@ -103,11 +103,12 @@ def check_url():
         # --- Case 2: Twitter ---
         elif "twitter.com" in url or "x.com" in url:
             platform = "Twitter"
-            # Placeholder for Twitter integration (to be added later)
-            return jsonify({
-                "platform": platform,
-                "message": "Twitter analysis coming soon"
-            }), 501
+            from app.utils import twitter_scraper
+            post_id = twitter_scraper.fetch_and_store_tweet(url)
+            if not post_id:
+                return jsonify({"error": "Could not fetch tweet"}), 500
+            
+            credibility.compute_single_post(post_id)
 
         # --- Case 3: News Articles ---
         else:
