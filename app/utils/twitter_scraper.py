@@ -1,106 +1,125 @@
+import re
 import os
 import asyncio
-from urllib.parse import urlparse
-from app.utils.database import SessionLocal
-from app.models import Post, Source
 from twikit import Client
+from sqlalchemy.orm import Session
+from app.models import Post, Comment, Source
+from app.utils.credibility import compute_advanced_score
 
 
-def extract_tweet_id(url: str) -> str | None:
-    """Extracts tweet ID from URL."""
-    if "status/" in url:
-        return url.split("status/")[-1].split("?")[0]
-    return None
+# -------------------------------
+# Async Twikit initialization
+# -------------------------------
+async def async_init_twitter_client() -> Client:
+    client = Client('en-US')
+    session_file = 'twitter_session.json'
 
+    if not os.path.exists(session_file):
+        raise Exception("twitter_session.json not found. Please export your X cookies first.")
 
-def init_client() -> Client:
-    """Initialize Twikit client (loads cookies if available)."""
-    client = Client(language='en-US')
-    cookie_path = 'twitter_cookies.json'
+    with open(session_file, 'r', encoding='utf-8') as f:
+        data = json.load(f)
 
-    if os.path.exists(cookie_path):
-        client.load_cookies(cookie_path)
-    else:
-        client.login(
-            auth_info_1=os.getenv("TWITTER_EMAIL"),
-            auth_info_2=os.getenv("TWITTER_USERNAME"),
-            password=os.getenv("TWITTER_PASSWORD")
-        )
-        client.save_cookies(cookie_path)
+    cookies = data.get("cookies", {})
+    if not cookies:
+        raise Exception("No cookies found in twitter_session.json")
 
+    for name, value in cookies.items():
+        client.cookies.set(name, value, domain=".x.com", path="/")
+
+    print("✅ Cookies loaded successfully from twitter_session.json")
     return client
 
 
-async def fetch_tweet_async(tweet_id: str):
-    """Async helper for Twikit."""
-    client = init_client()
-    tweet = await client.get_tweet_by_id(tweet_id)
-    return tweet
+
+def extract_tweet_id(url: str) -> str | None:
+    """Extract tweet ID from URL."""
+    match = re.search(r"status/(\d+)", url)
+    return match.group(1) if match else None
 
 
-def fetch_and_store_tweet(url: str):
-    """Fetch a tweet asynchronously using Twikit and store it in DB."""
-    db = SessionLocal()
+# -------------------------------
+# Async main fetch
+# -------------------------------
+async def async_fetch_tweet_data(tweet_id: str, db: Session) -> int | None:
+    client = await async_init_twitter_client()
+
     try:
-        tweet_id = extract_tweet_id(url)
-        if not tweet_id:
-            print("⚠️ Could not extract tweet ID.")
-            return None
-
-        # --- Fetch the tweet asynchronously ---
-        tweet = asyncio.run(fetch_tweet_async(tweet_id))
-
+        tweet = await client.get_tweet_by_id(tweet_id)
         if not tweet:
-            print("⚠️ No tweet data found.")
+            print("❌ Tweet not found or private.")
             return None
 
-        text = getattr(tweet, "text", None)
-        author = getattr(tweet.user, "name", "Unknown")
-        if not text:
-            print("⚠️ Empty tweet text.")
-            return None
+        # Extract external URLs
+        urls = re.findall(r'(https?://[^\s]+)', tweet.text)
+        article_url = urls[0] if urls else None
 
-        print(f"🐦 Tweet by {author}: {text[:60]}...")
+        # Create or get Source
+        source = None
+        if article_url:
+            domain_match = re.search(r'https?://(?:www\.)?([^/]+)/?', article_url)
+            domain = domain_match.group(1) if domain_match else None
+            if domain:
+                source = db.query(Source).filter(Source.url_pattern.ilike(f"%{domain}%")).first()
 
-        # --- Extract source domain if tweet includes link ---
-        source_id = None
-        if getattr(tweet, "links", None):
-            link = tweet.links[0].expanded_url
-            domain = urlparse(link).netloc.replace("www.", "")
-            source = db.query(Source).filter(Source.url_pattern.ilike(f"%{domain}%")).first()
-            if not source:
-                source = Source(name=domain.title(), url_pattern=domain)
-                db.add(source)
-                db.commit()
-                db.refresh(source)
-            source_id = source.id
-
-        # --- Check if tweet already exists ---
-        existing_post = db.query(Post).filter_by(post_id=tweet_id).first()
-        if existing_post:
-            existing_post.title = text
-            existing_post.platform = "Twitter"
-            existing_post.url = url
-            existing_post.source_id = source_id
-            db.add(existing_post)
-            db.commit()
-            return existing_post.id
-
-        # --- Create new Post ---
-        new_post = Post(
+        # Create Post
+        post = Post(
             platform="Twitter",
-            post_id=tweet_id,
-            title=text,
-            url=url,
-            source_id=source_id
+            post_id=str(tweet_id),
+            title=(tweet.text[:120] + '...') if len(tweet.text) > 120 else tweet.text,
+            url=f"https://x.com/i/status/{tweet_id}",
+            source_id=source.id if source else None,
+            verified_manual=False,
+            upvotes=getattr(tweet, "favorite_count", 0),
+            num_comments=getattr(tweet, "reply_count", 0)
         )
-        db.add(new_post)
+        db.add(post)
         db.commit()
-        db.refresh(new_post)
-        return new_post.id
+        db.refresh(post)
+
+        # Fetch replies (try/catch for API restrictions)
+        try:
+            replies = await tweet.get_replies(limit=10)
+            for r in replies:
+                text = r.text.strip()
+                if not text:
+                    continue
+                db.add(Comment(
+                    post_id=post.id,
+                    text=text,
+                    sentiment=None,
+                    is_sarcastic=False
+                ))
+            db.commit()
+        except Exception as e:
+            print(f"⚠️ Could not fetch replies: {e}")
+
+        # Compute credibility
+        score, explanation = compute_advanced_score(post, db)
+        post.advanced_score = score
+        post.score_explanation = explanation
+        db.commit()
+
+        print(f"✅ Stored tweet '{post.title[:50]}...' with score {score}")
+        return post.id
 
     except Exception as e:
         print(f"❌ Error fetching tweet: {e}")
         return None
-    finally:
-        db.close()
+
+
+# -------------------------------
+# Sync wrapper for Flask
+# -------------------------------
+def fetch_and_store_tweet(url: str, db: Session) -> int | None:
+    """Sync wrapper for Flask to call async Twikit code."""
+    tweet_id = extract_tweet_id(url)
+    if not tweet_id:
+        print("❌ Invalid tweet URL")
+        return None
+
+    try:
+        return asyncio.run(async_fetch_tweet_data(tweet_id, db))
+    except Exception as e:
+        print(f"❌ Async fetch failed: {e}")
+        return None

@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request, render_template
 from app.utils.database import SessionLocal
 from app.models import Post, Source, Comment
 from app.utils import reddit_api, nlp_pipeline, credibility, news_scraper
-
+from app.utils import twitter_scraper
 app = Flask(__name__)
 
 # Utility: Convert Comment object to dict
@@ -102,9 +102,10 @@ def check_url():
 
         # --- Case 2: Twitter ---
         elif "twitter.com" in url or "x.com" in url:
+            
+            from app.utils.twitter_scraper import fetch_and_store_tweet
+            post_id = fetch_and_store_tweet(url, db)
             platform = "Twitter"
-            from app.utils import twitter_scraper
-            post_id = twitter_scraper.fetch_and_store_tweet(url)
             if not post_id:
                 return jsonify({"error": "Could not fetch tweet"}), 500
             
