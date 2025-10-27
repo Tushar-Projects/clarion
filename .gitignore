@@ -41,3 +41,4 @@ ENV/
 Thumbs.db
 
 twitter_cookies.json
+twitter_session.json
