@@ -23,5 +23,3 @@ langdetect
 bs4
 newspaper3k
 snscrape
-playwright
-chromium
