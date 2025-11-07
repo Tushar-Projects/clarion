@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Glassmorphism base surface tokens */
+:root{
+  --glass-bg: rgba(255,255,255,0.55);
+  --glass-stroke: rgba(255,255,255,0.25);
+  --glass-shadow: 0 8px 32px rgba(31,38,135,.15);
+}
+.dark:root{
+  --glass-bg: rgba(17,25,40,.45);
+  --glass-stroke: rgba(255,255,255,.08);
+  --glass-shadow: 0 8px 32px rgba(0,0,0,.35);
+}
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: var(--glass-shadow);
+  border: 1px solid var(--glass-stroke);
+  border-radius: 1rem;
+}
