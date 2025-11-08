@@ -1,22 +1,19 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import Login from './pages/Login'
-import Register from './pages/Register'
-import Dashboard from './pages/Dashboard'
-import CheckPost from './pages/CheckPost'
-import { useAuth } from './store/authStore'
+import React from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Dashboard from './pages/Dashboard';
+import CheckPost from './pages/CheckPost';
 
-function PrivateRoute({children}){
-  const { user } = useAuth()
-  return user ? children : <Navigate to="/login" replace />
-}
-
-export default function AppRoutes(){
+export default function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login/>}/>
-      <Route path="/register" element={<Register/>}/>
-      <Route path="/" element={<PrivateRoute><Dashboard/></PrivateRoute>} />
-      <Route path="/check" element={<PrivateRoute><CheckPost/></PrivateRoute>} />
-    </Routes>
-  )
+   
+      <Routes>
+        <Route path="/" element={<Login />}/>
+        <Route path="/register" element={<Register />}/>
+        <Route path="/" element={<Dashboard />}/>
+        <Route path="/check" element={<CheckPost />}/>
+      </Routes>
+    
+  );
 }
