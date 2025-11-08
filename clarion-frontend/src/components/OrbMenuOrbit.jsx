@@ -1,36 +1,141 @@
-import { motion } from "framer-motion";
+import { useEffect, useRef, useState, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import clsx from "clsx";
 
-export default function OrbMenuOrbit({ items, radius = 220, speed = "slow" }) {
-  const duration = speed === "fast" ? 10 : speed === "medium" ? 18 : 26;
+const BTN = "px-4 py-2 rounded-full glass text-sm whitespace-nowrap select-none";
+const HOVER = { scale: 1.08, transition: { type: "spring", stiffness: 260, damping: 18 } };
+
+export default function OrbMenuOrbit({
+  items,
+  radius = 290,
+  speed = 0.10,
+  showSourcesSub = false,
+  onPickSource,
+  fixed = false
+}) {
+  const [t, setT] = useState(0);
+  const [hovered, setHovered] = useState(null);
+  const raf = useRef();
+
+  useEffect(() => {
+    const tick = () => {
+      setT((prev) => prev + (hovered ? 0 : speed * 0.016)); // pause while hovering
+      raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf.current);
+  }, [hovered, speed]);
+
+  // this box matches OrbCanvas (520x520)
+  const center = { x: 260, y: 260 + 20};
+
+  // place on equator; no vertical drift (so path hugs the orb's X axis)
+  const angles = useMemo(() => {
+    const N = items.length;
+    const base = t;
+    return items.map((_, i) => base + (i * (2 * Math.PI)) / N);
+  }, [items, t]);
 
   return (
-    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-      <motion.div
-        className="relative flex gap-6"
-        style={{
-          transform: `translateY(${radius}px)`, // Move items to horizontal orbit line
-        }}
-        animate={{ x: ["-30%", "30%", "-30%"] }}
-        transition={{ repeat: Infinity, duration, ease: "easeInOut" }}
-      >
-        {items.map((it) => (
-          <button
-            key={it.id}
+    <div
+      className={`${fixed ? "fixed" : "absolute"} z-[40]`}
+      style={{ width: 520, height: 520, left: "50%", top: "50%", transform: "translate(-50%, -50%)", pointerEvents: "none" }}
+    >
+      {items.map((item, i) => {
+        const ang = angles[i];
+
+        // Equator ring (true horizontal orbit)
+        const x = center.x + Math.cos(ang) * radius;
+        const y = center.y; // no vertical offset: stays on equator
+
+        // depth: -1 (back) -> +1 (front)
+        const depth = Math.sin(ang);
+        const frontness = (depth + 1) / 2; // 0..1
+
+        // Presentational tweaks
+        const scale = 0.9 + frontness * 0.25;          // bigger in front
+        const alpha = 0.45 + frontness * 0.55;         // fade when behind
+        const clickable = depth > 0;                   // only clickable in front
+
+        const isSources = item.id === "sources";
+        const isHovered = hovered === item.id;
+
+        return (
+          <motion.button
+            key={item.id}
+            className={clsx(BTN)}
+            whileHover={HOVER}
+            style={{
+              position: "absolute",
+              left: x,
+              top: y,
+              transform: `translate(-50%, -50%) scale(${scale})`,
+              opacity: alpha,
+              zIndex: Math.round(50 + frontness * 50),
+              pointerEvents: clickable ? "auto" : "none" // <— can’t click while behind
+            }}
+            onMouseEnter={() => setHovered(item.id)}
+            onMouseLeave={() => setHovered(null)}
             onClick={(e) => {
               e.stopPropagation();
-              it.onClick?.();
+              if (!clickable) return;
+              if (isSources) return; // sources handled via submenu
+              item.onClick?.();
             }}
-            className={clsx(
-              "pointer-events-auto px-4 py-2 rounded-full backdrop-blur-md border glass",
-              "bg-white/8 dark:bg-white/6 border-white/20 hover:bg-white/14",
-              "text-sm whitespace-nowrap"
-            )}
           >
-            {it.label}
-          </button>
-        ))}
-      </motion.div>
+            {item.label}
+
+            {/* Sources submenu */}
+            {isSources && (
+              <AnimatePresence>
+                {showSourcesSub && isHovered && (
+                  <MiniRadial
+                    anchor={{ x, y }}
+                    onPick={(s) => onPickSource?.(s)}
+                  />
+                )}
+              </AnimatePresence>
+            )}
+          </motion.button>
+        );
+      })}
     </div>
+  );
+}
+
+function MiniRadial({ anchor, onPick }) {
+  const opts = [
+    { id: "reddit",  label: "Reddit"  },
+    { id: "twitter", label: "Twitter" },
+    { id: "news",    label: "News"    },
+  ];
+  const r = 70;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1, transition: { duration: 0.18 } }}
+      exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
+      className="absolute"
+      style={{ left: anchor.x, top: anchor.y, transform: "translate(-50%, -50%)" }}
+    >
+      {opts.map((o, idx) => {
+        const ang = (idx / opts.length) * 2 * Math.PI;
+        const x = Math.cos(ang) * r;
+        const y = Math.sin(ang) * r;
+
+        return (
+          <motion.button
+            key={o.id}
+            whileHover={{ scale: 1.06 }}
+            className="px-3 py-1.5 rounded-full glass text-sm pointer-events-auto"
+            style={{ position: "absolute", left: x, top: y, transform: "translate(-50%, -50%)" }}
+            onClick={(e) => { e.stopPropagation(); onPick?.(o.id); }}
+          >
+            {o.label}
+          </motion.button>
+        );
+      })}
+    </motion.div>
   );
 }

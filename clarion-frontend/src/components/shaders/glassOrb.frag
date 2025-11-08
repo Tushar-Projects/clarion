@@ -1,43 +1,57 @@
-// soft purple nebula + fresnel glow, transparent core
-precision mediump float;
+// glassOrb.frag
+precision highp float;
 
 uniform float uTime;
-uniform vec3  uBaseColor;   // e.g. purple hue
-uniform float uGlow;        // overall glow intensity
-uniform vec3  uCamPos;
+uniform vec3 uTint;           // inner tint (your purple)
+uniform float uRefraction;    // subtle refraction strength (we will reduce its influence)
 
-varying vec3 vNormal;
 varying vec3 vWorldPos;
+varying vec3 vNormal;
+varying vec2 vUv;
 
-// simple fbm noise
-float hash(vec3 p){ return fract(sin(dot(p, vec3(27.1,61.7,12.4))) * 43758.5453); }
-float noise(vec3 p){
-  vec3 i=floor(p); vec3 f=fract(p);
-  float n=dot(i, vec3(1.0,57.0,113.0));
-  vec3 u=f*f*(3.0-2.0*f);
-  return mix(
-    mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),u.x),
-        mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),u.x),u.y),
-    mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),u.x),
-        mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),u.x),u.y),u.z);
+// cheap hash noise
+float hash(vec3 p) {
+  p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + 0.1));
 }
-float fbm(vec3 p){
-  float v=0.0, a=0.5;
-  for(int i=0;i<5;i++){ v+=a*noise(p); p*=2.02; a*=0.5; }
-  return v;
+
+float fbm(vec3 p) {
+  float a = 0.0;
+  float f = 1.0;
+  for (int i = 0; i < 5; i++) {
+    a += hash(p * f) / f;
+    f *= 2.0;
+  }
+  return a;
 }
 
 void main() {
-  // view & fresnel
-  vec3  V = normalize(uCamPos - vWorldPos);
-  float fres = pow(1.0 - max(dot(normalize(vNormal), V), 0.0), 2.2);
+  vec3 N = normalize(vNormal);
+  vec3 V = normalize(cameraPosition - vWorldPos);
 
-  // soft moving nebula inside
-  vec3  p = vWorldPos * 0.9 + vec3(0.0, uTime*0.05, 0.0);
-  float n = fbm(p*1.2) * 0.75 + fbm(p*2.3)*0.25;
+  // nebula motion → slowed slightly for calm breathing feel
+  float n = fbm(vWorldPos * 0.85 + vec3(0.0, uTime * 0.05, 0.0));
+  vec3 inner = mix(vec3(0.92, 0.86, 1.0), uTint, smoothstep(0.25, 0.9, n));
 
-  vec3 nebula = mix(vec3(0.1,0.05,0.12), uBaseColor, n);
-  float alpha = 0.38 + 0.25*n + 0.35*fres*uGlow;
+  // smoother fresnel — FIX for black edge issues
+  float fres = pow(1.0 - max(dot(N, V), 0.0), 2.2);
 
-  gl_FragColor = vec4(nebula, clamp(alpha, 0.12, 0.95));
+  // soft highlight
+  vec3 L = normalize(vec3(0.4, 0.7, 0.5));
+  float spec = pow(max(dot(reflect(-L, N), V), 0.0), 20.0) * 0.25;
+
+  // softer refraction so the orb does NOT blow out white
+  float refr = mix(0.0, 1.0, fres) * (uRefraction * 0.45);
+
+  vec3 col = inner + vec3(spec);
+  col = mix(col, vec3(1.0), refr * 0.25);
+
+  // smooth glass transparency — FIX for harsh bloom
+  float alpha = smoothstep(0.08, 0.9, fres) * 0.28 + 0.55;
+
+  // Prevent black crush + ensure soft purple always visible
+  col = max(col, vec3(0.05)); 
+
+  gl_FragColor = vec4(col, alpha);
 }

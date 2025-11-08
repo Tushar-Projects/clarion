@@ -35,7 +35,8 @@ export default function Hero() {
       </motion.div>
 
       {/* Radial Navigation Overlay */}
-      <OrbMenuOverlay onToggleTheme={() => setDark((v) => !v)} />
+      <OrbMenuOverlay />
+
 
     </section>
   );

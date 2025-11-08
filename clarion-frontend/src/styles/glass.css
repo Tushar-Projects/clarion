@@ -6,7 +6,7 @@
   box-shadow: 0 10px 30px rgba(0,0,0,0.12);
   border-radius: 18px;
 }
-.dark .glass-card {
-  background: rgba(20,20,26,0.25);
-  border-color: rgba(255,255,255,0.08);
+:root.dark .glass {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
 }

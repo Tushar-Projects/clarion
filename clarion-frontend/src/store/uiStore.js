@@ -1,23 +1,25 @@
-import { create } from 'zustand';
+// src/store/uiStore.js
+import { create } from "zustand";
 
-export const useUI = create((set, get) => ({
-  // hover/click selection
-  tools: [
-    { key: 'top', label: 'Top Posts Today', hash: '#top-today' },
-    { key: 'check', label: 'Check a Post', hash: '#check' },
-    { key: 'history', label: 'History', hash: '#history' },
-    { key: 'settings', label: 'Settings', hash: '#settings' },
-  ],
-  activeIndex: 0,
-  setActiveIndex: (i) => set({ activeIndex: i }),
+export const useUI = create((set) => ({
+  mode: "menu",        // "menu" (orb + orbit menu) or "page" (section content)
+  activePage: null,    // "top" | "check" | "history" | "settings" | etc.
 
-  // orb color (driven by credibility score)
-  orbColor: '#a78bfa', // default purple (legit)
+  // When user selects a function orbit item
+  enterPage: (page) =>
+    set(() => ({
+      mode: "page",
+      activePage: page,
+    })),
+
+  // When user clicks "Return to Menu" or the orb
+  returnToMenu: () =>
+    set(() => ({
+      mode: "menu",
+      activePage: null,
+    })),
+  
+  // Orb dynamic color (future post-scoring)
+  orbColor: "#a38bff",
   setOrbColor: (c) => set({ orbColor: c }),
-
-  // smooth scroll to target section
-  goTo: (hash) => {
-    const el = document.querySelector(hash);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  },
 }));

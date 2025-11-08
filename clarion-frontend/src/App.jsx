@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import OrbCanvas from "./components/OrbCanvas";
 import OrbMenuOrbit from "./components/OrbMenuOrbit";
+
 import SectionTopToday from "./pages/SectionTopToday";
 import SectionCheck from "./pages/SectionCheck";
 import SectionHistory from "./pages/SectionHistory";
@@ -9,77 +10,110 @@ import SectionSettings from "./pages/SectionSettings";
 
 export default function App() {
   const [dark, setDark] = useState(() => localStorage.getItem("clarion-theme") === "dark");
-  const [active, setActive] = useState(null); // null = hero shown
-
   useEffect(() => {
-    const root = document.documentElement;
-    if (dark) { root.classList.add("dark"); localStorage.setItem("clarion-theme", "dark"); }
-    else { root.classList.remove("dark"); localStorage.setItem("clarion-theme", "light"); }
+    document.documentElement.classList.toggle("dark", dark);
+    localStorage.setItem("clarion-theme", dark ? "dark" : "light");
   }, [dark]);
 
-  const orbitItems = [
-    { id: "top", label: "Top Posts Today", onClick: () => setActive("top") },
-    { id: "check", label: "Check a Post", onClick: () => setActive("check") },
-    { id: "history", label: "History", onClick: () => setActive("history") },
-    { id: "settings", label: "Settings", onClick: () => setActive("settings") },
-    { id: "theme", label: dark ? "Light Mode" : "Dark Mode", onClick: () => setDark(v => !v) },
-  ];
+  const [active, setActive] = useState(null);        // null = hero, else "top" | "check" | "history" | "settings"
+  const [source, setSource] = useState("all");
+  const [showSourcesSub, setShowSourcesSub] = useState(false);
+
+  const isHero = active === null;
+
+  const openSection = (key) => {
+    setActive(key);
+    setShowSourcesSub(false);
+    // ensure the section starts at the top every time
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+  };
+
+  const orbitItems = useMemo(() => ([
+    { id: "top",      label: "Top Posts Today", onClick: () => openSection("top") },
+    { id: "check",    label: "Check a Post",    onClick: () => openSection("check") },
+    { id: "history",  label: "History",         onClick: () => openSection("history") },
+    { id: "settings", label: "Settings",        onClick: () => openSection("settings") },
+    { id: "sources",  label: "Sources",         onClick: () => setShowSourcesSub(v => !v) },
+    { id: "theme",    label: dark ? "Light Mode" : "Dark Mode", onClick: () => setDark(v => !v) },
+  ]), [dark]);
+
+  const brandVariants = {
+    hidden: { opacity: 0, y: -12 },
+    show:   { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
+  };
+
+  const titleVariants = {
+    hidden: { opacity: 0, y: 10 },
+    show:   { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } },
+    exit:   { opacity: 0, y: -8, transition: { duration: 0.35, ease: "easeIn" } }
+  };
 
   return (
     <main className="min-h-screen text-zinc-900 dark:text-zinc-100 bg-gradient-to-b from-white to-zinc-50 dark:from-[#0a0b0e] dark:to-black">
-      {/* top bar brand only (no theme switch here) */}
-      <div className="fixed inset-x-0 top-0 z-50 px-6 py-4">
-        <div className="glass max-w-6xl mx-auto flex items-center justify-between px-4 py-2 rounded-2xl">
-          <div className="font-semibold tracking-wide">Clarion Intelligence Console</div>
-        </div>
-      </div>
+      {/* Brand (stays) */}
+      <motion.div
+        className="fixed top-4 left-6 z-[60] px-4 py-2 rounded-xl glass"
+        variants={brandVariants}
+        initial="hidden"
+        animate="show"
+      >
+        <span className="font-semibold tracking-wide">Clarion Intelligence Console</span>
+      </motion.div>
 
-      {/* HERO */}
-      <section id="hero" className="min-h-[88vh] md:min-h-screen flex items-center justify-center relative pt-20">
-        {/* Orb */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7 }}
-          className="absolute inset-0"
-        >
-          <OrbCanvas />
-        </motion.div>
+      {/* Hero layer (fixed so scrolling doesn't affect orb/menu) */}
+      <section className="min-h-[88vh] md:min-h-screen relative">
+        {/* ORB */}
+        <OrbCanvas
+          inCorner={!isHero}
+          cornerOffset={{ top: 80, right: 80 }}
+          cornerScale={0.6}
+          onClickCorner={() => setActive(null)}
+          fixed={isHero}                // <— FIX: keep orb fixed while on hero
+          tint="purple"                 // <— keep the purple glitch tint
+        />
 
-        {/* Title (fades out after selection) */}
+        {/* Title */}
         <AnimatePresence>
-          {!active && (
+          {isHero && (
             <motion.div
               key="title"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.45 }}
-              className="relative z-10 w-full max-w-5xl mx-auto px-6"
+              className="fixed left-1/2 -translate-x-1/2 top-[58vh] z-[30] text-center px-6"
+              variants={titleVariants}
+              initial="hidden"
+              animate="show"
+              exit="exit"
             >
-              <div className="text-center mb-6">
-                <h1 className="text-4xl md:text-6xl font-semibold tracking-tight">
-                  Clarion<span className="opacity-60"> — see truth clearly.</span>
-                </h1>
-                <p className="mt-3 opacity-80">Hover the orb to explore. Click a mode to continue.</p>
-              </div>
+              <h1 className="text-4xl md:text-6xl font-semibold tracking-tight">
+                Clarion <span className="opacity-60">— see truth clearly.</span>
+              </h1>
+              <p className="mt-3 opacity-80">Hover the orb to explore. Click a mode to continue.</p>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Radial orbit menu (slow) */}
-        <OrbMenuOrbit items={orbitItems} radius={220} speed="slow" />
+        {/* Orbit menu */}
+        <AnimatePresence>
+          {isHero && (
+            <OrbMenuOrbit
+              key="orbit"
+              items={orbitItems}
+              radius={210}                  // ring safely inside orb
+              speed={0.10}                  // slower rotation
+              showSourcesSub={showSourcesSub}
+              onPickSource={(s) => { setSource(s); setShowSourcesSub(false); }}
+              fixed                            // <— FIX: menu fixed with orb
+            />
+          )}
+        </AnimatePresence>
       </section>
 
-      {/* Sections (only show selected) */}
-      {active === "top" && <SectionTopToday />}
-      {active === "check" && <SectionCheck />}
-      {active === "history" && <SectionHistory />}
-      {active === "settings" && <SectionSettings />}
+      {/* Sections — add consistent top padding so content isn’t “too low” */}
+      {active === "top"      && <div className="pt-6"><SectionTopToday source={source} /></div>}
+      {active === "check"    && <div className="pt-6"><SectionCheck     source={source} /></div>}
+      {active === "history"  && <div className="pt-6"><SectionHistory   source={source} /></div>}
+      {active === "settings" && <div className="pt-6"><SectionSettings  source={source} /></div>}
 
-      <footer className="py-10 text-center opacity-60 text-sm">
-        © {new Date().getFullYear()} Clarion
-      </footer>
+      <footer className="py-10 text-center opacity-60 text-sm">© {new Date().getFullYear()} Clarion</footer>
     </main>
   );
 }
