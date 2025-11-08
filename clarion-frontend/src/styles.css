@@ -1,0 +1,16 @@
+/* Glassmorphism helper */
+.glass {
+  background: rgba(255, 255, 255, 0.38);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+:root.dark .glass {
+  background: rgba(17, 17, 17, 0.45);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Optional: smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
