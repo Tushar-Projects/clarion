@@ -1,20 +1,19 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html','./src/**/*.{js,jsx}'],
+  darkMode: 'class',
+  content: ['./index.html', './src/**/*.{js,jsx,ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        // we’ll still compute colors dynamically in UI logic
+        glass: 'rgba(255,255,255,0.08)',
+        ink: '#0a0a0a',
       },
-      boxShadow: {
-        glass: '0 8px 32px rgba(31, 38, 135, 0.15)',
+      backdropBlur: { xl: "24px", '2xl': '40px' },
+       boxShadow: {
+        glass: "0 20px 40px rgba(0,0,0,0.15)",
+         glow: "0 0 80px rgba(255,255,255,0.25)"
       },
-      backdropBlur: {
-        xs: '2px',
-      }
     },
   },
-  darkMode: 'class',
   plugins: [],
-}
-
+};
