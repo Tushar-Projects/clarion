@@ -14,28 +14,43 @@ export default function App() {
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("clarion-theme", dark ? "dark" : "light");
   }, [dark]);
-
-  const [active, setActive] = useState(null);        // null = hero, else "top" | "check" | "history" | "settings"
+  const [orbitEpoch, setOrbitEpoch] = useState(0); // to reset orbit position on source change
+  const [active, setActive] = useState(null); // null = hero
   const [source, setSource] = useState("all");
   const [showSourcesSub, setShowSourcesSub] = useState(false);
 
   const isHero = active === null;
 
+  // prevent scroll on hero (no layout shifts)
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = isHero ? "hidden" : "";
+    return () => { document.body.style.overflow = prev; };
+  }, [isHero]);
+
   const openSection = (key) => {
     setActive(key);
     setShowSourcesSub(false);
-    // ensure the section starts at the top every time
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   };
 
-  const orbitItems = useMemo(() => ([
-    { id: "top",      label: "Top Posts Today", onClick: () => openSection("top") },
-    { id: "check",    label: "Check a Post",    onClick: () => openSection("check") },
-    { id: "history",  label: "History",         onClick: () => openSection("history") },
-    { id: "settings", label: "Settings",        onClick: () => openSection("settings") },
-    { id: "sources",  label: "Sources",         onClick: () => setShowSourcesSub(v => !v) },
-    { id: "theme",    label: dark ? "Light Mode" : "Dark Mode", onClick: () => setDark(v => !v) },
-  ]), [dark]);
+  const backToHero = () => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+    setOrbitEpoch((e) => e + 1);
+    setActive(null);
+  };
+
+  const orbitItems = useMemo(
+    () => [
+      { id: "top",      label: "Top Posts Today", onClick: () => openSection("top") },
+      { id: "check",    label: "Check a Post",    onClick: () => openSection("check") },
+      { id: "history",  label: "History",         onClick: () => openSection("history") },
+      { id: "settings", label: "Settings",        onClick: () => openSection("settings") },
+      { id: "sources",  label: "Sources",         onClick: () => setShowSourcesSub(v => !v) },
+      { id: "theme",    label: dark ? "Light Mode" : "Dark Mode", onClick: () => setDark(v => !v) },
+    ],
+    [dark]
+  );
 
   const brandVariants = {
     hidden: { opacity: 0, y: -12 },
@@ -43,13 +58,18 @@ export default function App() {
   };
 
   const titleVariants = {
-    hidden: { opacity: 0, y: 10 },
-    show:   { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } },
-    exit:   { opacity: 0, y: -8, transition: { duration: 0.35, ease: "easeIn" } }
+    hidden: { opacity: 0, y: 16 },
+    show:   { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } },
+    exit:   { opacity: 0, y: -16, transition: { duration: 0.45, ease: "easeIn" } }
   };
+
+  // Section enter/exit
+  const sectionEnter = { opacity: 1, y: 0, transition: { duration: 0.45, ease: "easeOut" } };
+  const sectionExit  = { opacity: 0, y: -14, transition: { duration: 0.35, ease: "easeIn" } };
 
   return (
     <main className="min-h-screen text-zinc-900 dark:text-zinc-100 bg-gradient-to-b from-white to-zinc-50 dark:from-[#0a0b0e] dark:to-black">
+
       {/* Brand (stays) */}
       <motion.div
         className="fixed top-4 left-6 z-[60] px-4 py-2 rounded-xl glass"
@@ -60,28 +80,31 @@ export default function App() {
         <span className="font-semibold tracking-wide">Clarion Intelligence Console</span>
       </motion.div>
 
-      {/* Hero layer (fixed so scrolling doesn't affect orb/menu) */}
-      <section className="min-h-[88vh] md:min-h-screen relative">
-        {/* ORB */}
+      {/* =========================== */}
+      {/* FIXED HERO OVERLAY (always mounted) */}
+      {/* =========================== */}
+      <div className="fixed inset-0 z-[20] pointer-events-none">
+        {/* Orb – clickable only in section mode to go back */}
         <OrbCanvas
           inCorner={!isHero}
           cornerOffset={{ top: 80, right: 80 }}
           cornerScale={0.6}
-          onClickCorner={() => setActive(null)}
-          fixed={isHero}                // <— FIX: keep orb fixed while on hero
-          tint="purple"                 // <— keep the purple glitch tint
+          onClickCorner={backToHero}
+          fixed
+          tint="purple"
         />
 
-        {/* Title */}
+        {/* Title – only visible on hero */}
         <AnimatePresence>
           {isHero && (
             <motion.div
               key="title"
-              className="fixed left-1/2 -translate-x-1/2 top-[58vh] z-[30] text-center px-6"
+              className="absolute left-1/2 -translate-x-1/2 top-[58vh] z-[30] text-center px-6"
               variants={titleVariants}
               initial="hidden"
               animate="show"
               exit="exit"
+              style={{ pointerEvents: "none" }}
             >
               <h1 className="text-4xl md:text-6xl font-semibold tracking-tight">
                 Clarion <span className="opacity-60">— see truth clearly.</span>
@@ -91,29 +114,93 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Orbit menu */}
-        <AnimatePresence>
-          {isHero && (
-            <OrbMenuOrbit
-              key="orbit"
-              items={orbitItems}
-              radius={210}                  // ring safely inside orb
-              speed={0.10}                  // slower rotation
-              showSourcesSub={showSourcesSub}
-              onPickSource={(s) => { setSource(s); setShowSourcesSub(false); }}
-              fixed                            // <— FIX: menu fixed with orb
-            />
-          )}
-        </AnimatePresence>
-      </section>
+        {/* Orbit menu – always mounted to avoid position snap; just fade/disable */}
+        <motion.div
+          initial={false}
+          animate={
+            isHero
+              ? { opacity: 1, transition: { delay: 0.25, duration: 0.35 } }
+              : { opacity: 0, transition: { duration: 0.25 } }
+          }
+          className="absolute inset-0"
+          style={{ pointerEvents: isHero ? "auto" : "none" }}
+        >
+          <AnimatePresence>
+            {isHero && (
+          <OrbMenuOrbit
+            key={'orbit-${orbitEpoch}'} // reset position on epoch change
+            items={orbitItems}
+            radius={260}
+            speed={0.09}
+            showSourcesSub={showSourcesSub}
+            onPickSource={(s) => { setSource(s); setShowSourcesSub(false); }}
+            fixed
+            active={active}
+          />
+            )}
+            </AnimatePresence>
+        </motion.div>
+      </div>
 
-      {/* Sections — add consistent top padding so content isn’t “too low” */}
-      {active === "top"      && <div className="pt-6"><SectionTopToday source={source} /></div>}
-      {active === "check"    && <div className="pt-6"><SectionCheck     source={source} /></div>}
-      {active === "history"  && <div className="pt-6"><SectionHistory   source={source} /></div>}
-      {active === "settings" && <div className="pt-6"><SectionSettings  source={source} /></div>}
+      {/* Spacer that only occupies flow when a section is open (prevents content jumping under the fixed overlay) */}
+      {!isHero && <div className="h-[140px]" />}
 
-      <footer className="py-10 text-center opacity-60 text-sm">© {new Date().getFullYear()} Clarion</footer>
+      {/* =========================== */}
+      {/* Sections */}
+      {/* =========================== */}
+      <AnimatePresence mode="wait">
+        {active === "top" && (
+          <motion.div
+            key="top"
+            initial={{ opacity: 0, y: 14 }}
+            animate={sectionEnter}
+            exit={sectionExit}
+            className="pt-6"
+          >
+            <SectionTopToday source={source} />
+          </motion.div>
+        )}
+
+        {active === "check" && (
+          <motion.div
+            key="check"
+            initial={{ opacity: 0, y: 14 }}
+            animate={sectionEnter}
+            exit={sectionExit}
+            className="pt-6"
+          >
+            <SectionCheck source={source} />
+          </motion.div>
+        )}
+
+        {active === "history" && (
+          <motion.div
+            key="history"
+            initial={{ opacity: 0, y: 14 }}
+            animate={sectionEnter}
+            exit={sectionExit}
+            className="pt-6"
+          >
+            <SectionHistory source={source} />
+          </motion.div>
+        )}
+
+        {active === "settings" && (
+          <motion.div
+            key="settings"
+            initial={{ opacity: 0, y: 14 }}
+            animate={sectionEnter}
+            exit={sectionExit}
+            className="pt-6"
+          >
+            <SectionSettings source={source} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <footer className="py-10 text-center opacity-60 text-sm">
+        © {new Date().getFullYear()} Clarion
+      </footer>
     </main>
   );
 }

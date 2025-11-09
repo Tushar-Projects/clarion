@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import clsx from "clsx";
 
-const BTN = "px-4 py-2 rounded-full glass text-sm whitespace-nowrap select-none";
-const HOVER = { scale: 1.08, transition: { type: "spring", stiffness: 260, damping: 18 } };
+const BTN = "px-5 py-2.5 rounded-full glass text-base whitespace-nowrap select-none";
+const HOVER = { scale: 1.04, transition: { duration: 0.25, ease: "easeOut" } };
+
 
 export default function OrbMenuOrbit({
   items,
@@ -11,20 +12,29 @@ export default function OrbMenuOrbit({
   speed = 0.10,
   showSourcesSub = false,
   onPickSource,
-  fixed = false
+  fixed = false,
+  active = null,
 }) {
   const [t, setT] = useState(0);
   const [hovered, setHovered] = useState(null);
   const raf = useRef();
 
+ // run RAF only on hero
   useEffect(() => {
+    if (active !== null) return; // section open → don't animate
     const tick = () => {
-      setT((prev) => prev + (hovered ? 0 : speed * 0.016)); // pause while hovering
+      setT((prev) => prev + (hovered ? 0 : speed * 0.016));
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf.current);
-  }, [hovered, speed]);
+  }, [hovered, speed, active]);
+
+  // when we come back to hero, re-center angle
+  useEffect(() => {
+    if (active === null) setT(0);
+ }, [active]);
+
 
   // this box matches OrbCanvas (520x520)
   const center = { x: 260, y: 260 + 20};
@@ -53,7 +63,7 @@ export default function OrbMenuOrbit({
         const frontness = (depth + 1) / 2; // 0..1
 
         // Presentational tweaks
-        const scale = 0.9 + frontness * 0.25;          // bigger in front
+        const scale = 1.0 + frontness * 0.26;          // bigger in front
         const alpha = 0.45 + frontness * 0.55;         // fade when behind
         const clickable = depth > 0;                   // only clickable in front
 
@@ -64,16 +74,22 @@ export default function OrbMenuOrbit({
           <motion.button
             key={item.id}
             className={clsx(BTN)}
-            whileHover={HOVER}
-            style={{
-              position: "absolute",
-              left: x,
-              top: y,
-              transform: `translate(-50%, -50%) scale(${scale})`,
-              opacity: alpha,
-              zIndex: Math.round(50 + frontness * 50),
-              pointerEvents: clickable ? "auto" : "none" // <— can’t click while behind
-            }}
+            // whileHover={HOVER}
+           style={{
+  position: "absolute",
+  left: x,
+  top: y,
+  transform: `translate(-50%, -50%) scale(${scale})`,
+  opacity: alpha,
+  zIndex: Math.round(50 + frontness * 50),
+  pointerEvents: clickable ? "auto" : "none",
+  border: isHovered ? "1.6px solid rgba(255,255,255,0.85)" : "1px solid rgba(255,255,255,0.25)",
+  boxShadow: isHovered
+    ? "0 0 14px rgba(255,255,255,0.55)"
+    : "0 0 6px rgba(0,0,0,0.25)",
+  transition: "border 0.18s ease, box-shadow 0.18s ease"
+}}
+
             onMouseEnter={() => setHovered(item.id)}
             onMouseLeave={() => setHovered(null)}
             onClick={(e) => {

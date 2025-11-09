@@ -9,6 +9,10 @@
 :root {
   --bg-grad: radial-gradient(1200px 600px at 70% -20%, rgba(99,102,241,.25), transparent 60%),
              radial-gradient(900px 500px at -10% 20%, rgba(56,189,248,.25), transparent 60%);
+              --clarion-purple: #a78bfa;
+  --clarion-purple-soft: rgba(167, 139, 250, 0.35);
+  --clarion-bg-1: #0f0f14;
+  --clarion-bg-2: #1a1b23;
 }
 
 html, body, #root {
@@ -22,14 +26,17 @@ body {
   @apply bg-white text-zinc-900 dark:bg-ink dark:text-zinc-100;
   background-image: var(--bg-grad);
   background-attachment: fixed;
+   background: linear-gradient(to bottom, var(--clarion-bg-1), var(--clarion-bg-2));
+  transition: background 0.6s ease;
 }
 
 .glass {
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.09);
   border: 1px solid rgba(255,255,255,0.12);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: 16px;
+  transition: background 0.25s ease, transform 0.25s ease, border 0.25s ease;
 }
 
 .scroll-snap {
@@ -60,6 +67,21 @@ hero-bg {
   background: radial-gradient(circle at center, rgba(180, 140, 255, 0.18), transparent 80%);
 }
 
+html, body {
+  overflow-x: hidden;
+}
+section#hero {
+  height: 100vh;
+  overflow: hidden;
+}
+.text-subtle {
+  color: var(--clarion-purple-soft);
+}
+
+.glass:hover {
+  background: rgba(255, 255, 255, 0.17);
+  border-color: rgba(255, 255, 255, 0.22);
+}
 
 @keyframes float {
   0%,100% { transform: translateY(0) rotate(0deg); }

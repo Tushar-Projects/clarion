@@ -24,10 +24,9 @@ function GlitchyOrb({ tint = "purple" }) {
       <shaderMaterial
         vertexShader={glassVert}
         fragmentShader={
-          // inject a tint if your fragment doesn’t have it
           glassFrag.includes("uTint")
             ? glassFrag
-            : glassFrag + "\n// tint mix\n#ifdef GL_ES\nprecision mediump float;\n#endif\n"
+            : glassFrag + "\n// tint passthrough"
         }
         uniforms={uniforms}
         transparent
@@ -42,7 +41,6 @@ export default function OrbCanvas({
   cornerOffset = { top: 80, right: 80 },
   cornerScale = 0.6,
   onClickCorner,
-  fixed = false,
   tint = "purple",
 }) {
   const variants = {
@@ -51,36 +49,32 @@ export default function OrbCanvas({
       left: "50%",
       right: "auto",
       transform: "translate(-50%, -50%) scale(1)",
-      transition: { type: "spring", stiffness: 160, damping: 22 },
+      transition: { type: "spring", stiffness: 140, damping: 16 }
     },
     corner: {
       top: cornerOffset.top,
       left: "auto",
       right: cornerOffset.right,
       transform: `translate(0,0) scale(${cornerScale})`,
-      transition: { type: "spring", stiffness: 160, damping: 22 },
+      transition: { type: "spring", stiffness: 140, damping: 16 }
     }
   };
 
-  const Wrapper = (props) => (
+  return (
     <motion.div
-      className={`${fixed ? "fixed" : "absolute"} z-[20] pointer-events-auto`}
+      className="fixed z-[20] pointer-events-auto"
       style={{ width: 520, height: 520 }}
       initial={false}
       animate={inCorner ? "corner" : "center"}
       variants={variants}
       onClick={inCorner ? onClickCorner : undefined}
-      {...props}
-    />
-  );
-
-  return (
-    <Wrapper>
+    >
       <Canvas camera={{ position: [0, 0, 5.2], fov: 45 }} gl={{ antialias: true }}>
         <ambientLight intensity={0.6} />
         <directionalLight position={[4, 4, 6]} intensity={1.2} />
         <GlitchyOrb tint={tint} />
       </Canvas>
-    </Wrapper>
+    </motion.div>
   );
 }
+
