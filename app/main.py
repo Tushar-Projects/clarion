@@ -2,8 +2,9 @@ from flask import Flask, jsonify, request, render_template
 from app.utils.database import SessionLocal
 from app.models import Post, Source, Comment
 from app.utils import reddit_api, nlp_pipeline, credibility, news_scraper
-
+from flask_cors import CORS
 app = Flask(__name__)
+CORS(app)
 
 # Utility: Convert Comment object to dict
 def comment_to_dict(comment):
@@ -146,6 +147,93 @@ def check_url():
 @app.route("/check", methods=["GET"])
 def check_page():
     return render_template("check_url.html")
+# ===============================
+# NEW API ENDPOINTS FOR FRONTEND
+# ===============================
+
+@app.route("/top-posts", methods=["GET"])
+def top_posts():
+    source = request.args.get("source", "reddit")  # default
+    db = SessionLocal()
+    try:
+        posts = db.query(Post).filter(Post.platform.ilike(f"%{source}%")).order_by(Post.created_at.desc()).limit(20).all()
+        results = [post_to_dict(p, include_comments=False) for p in posts]
+        return jsonify({"source": source, "results": results})
+    finally:
+        db.close()
+
+@app.route("/check-post", methods=["GET", "POST"])
+def check_post():
+    # If GET → read URL from query parameter
+    if request.method == "GET":
+        url = request.args.get("url", "").strip()
+    else:
+        # If POST → read JSON
+        data = request.get_json()
+        url = data.get("url", "").strip() if data else ""
+
+    if not url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    from app.utils.reddit_api import fetch_post_by_url
+    from app.utils.credibility import compute_single_post
+    from app.utils.nlp_pipeline import process_single_post
+    from app.utils.twitter_fallback_scraper import fetch_and_store_tweet
+    from app.utils import news_scraper
+    from app.utils.database import SessionLocal
+    from app.models import Post
+
+    db = SessionLocal()
+    platform = "Unknown"
+    post_id = None
+
+    try:
+        # Reddit
+        if "reddit.com" in url:
+            platform = "Reddit"
+            post_id = fetch_post_by_url(url)
+            process_single_post(post_id)
+            compute_single_post(post_id)
+
+        # Twitter/X
+        elif "twitter.com" in url or "x.com" in url:
+            platform = "Twitter"
+            post_id = fetch_and_store_tweet(url, db)
+            compute_single_post(post_id)
+
+        # News URLs
+        else:
+            platform = "News"
+            post_id = news_scraper.fetch_and_store_article(url)
+            compute_single_post(post_id)
+
+        post = db.query(Post).filter_by(id=post_id).first()
+        if not post:
+            return jsonify({"error": "Post not found after scoring"}), 404
+
+        result = {
+            "title": post.title,
+            "platform": platform,
+            "credibility_score": post.credibility_score,
+            "advanced_score": post.advanced_score,
+            "community_sentiment": post.community_sentiment,
+        }
+
+        return jsonify(result)
+
+    finally:
+        db.close()
+
+
+
+
+@app.route("/history", methods=["GET"])
+def history():
+    db = SessionLocal()
+    posts = db.query(Post).order_by(Post.created_at.desc()).limit(50).all()
+    results = [post_to_dict(p) for p in posts]
+    db.close()
+    return jsonify(results)
 
 
 if __name__ == "__main__":
