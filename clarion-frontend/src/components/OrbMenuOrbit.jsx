@@ -21,7 +21,7 @@ export default function OrbMenuOrbit({
 
  // run RAF only on hero
   useEffect(() => {
-    if (active !== null) return; // section open → don't animate
+    if (active != null) return; // section open → don't animate
     const tick = () => {
       setT((prev) => prev + (hovered ? 0 : speed * 0.016));
       raf.current = requestAnimationFrame(tick);

@@ -83,14 +83,14 @@ export default function App() {
       {/* =========================== */}
       {/* FIXED HERO OVERLAY (always mounted) */}
       {/* =========================== */}
-      <div className="fixed inset-0 z-[20] pointer-events-none">
+      <div className="relative z-[20] pointer-events-none">
         {/* Orb – clickable only in section mode to go back */}
         <OrbCanvas
           inCorner={!isHero}
-          cornerOffset={{ top: 80, right: 80 }}
-          cornerScale={0.6}
+          cornerOffset={{ top: 40, right: 40 }}
+          cornerScale={0.42}
           onClickCorner={backToHero}
-          fixed
+          fixed={true}
           tint="purple"
         />
 
