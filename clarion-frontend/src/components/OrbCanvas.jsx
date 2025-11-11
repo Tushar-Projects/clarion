@@ -1,7 +1,7 @@
 import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useRef, useMemo } from "react";
-import { motion } from "framer-motion";
+import { motion, transform } from "framer-motion";
 
 import glassFrag from "./shaders/glassOrb.frag?raw";
 import glassVert from "./shaders/glassOrb.vert?raw";
@@ -52,10 +52,11 @@ export default function OrbCanvas({
       transition: { type: "spring", stiffness: 140, damping: 16 }
     },
     corner: {
-      top: cornerOffset.top,
+      top: '${cornerOffset.top}px',
       left: "auto",
-      right: cornerOffset.right,
+      right: "${cornerOffset.right}px",
       transform: `translate(0,0) scale(${cornerScale})`,
+      transformOrigin: "top right",
       transition: { type: "spring", stiffness: 140, damping: 16 }
     }
   };
@@ -63,7 +64,7 @@ export default function OrbCanvas({
   return (
     <motion.div
       className="fixed z-[20] pointer-events-auto"
-      style={{ width: 520, height: 520 }}
+      style={{ width: 520, height: 520, transformOrigin: "center center" }}
       initial={false}
       animate={inCorner ? "corner" : "center"}
       variants={variants}
