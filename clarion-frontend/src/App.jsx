@@ -80,67 +80,56 @@ export default function App() {
         <span className="font-semibold tracking-wide">Clarion Intelligence Console</span>
       </motion.div>
 
-      {/* =========================== */}
-      {/* FIXED HERO OVERLAY (always mounted) */}
-      {/* =========================== */}
-      <div className="relative z-[20] pointer-events-none">
-        {/* Orb – clickable only in section mode to go back */}
-        <OrbCanvas
-          inCorner={!isHero}
-          cornerOffset={{ top: 40, right: 40 }}
-          cornerScale={0.42}
-          onClickCorner={backToHero}
-          fixed={true}
-          tint="purple"
+      {/* ORB ALWAYS MOUNTED */}
+<div className="fixed inset-0 z-[40] pointer-events-none">
+  
+  <OrbCanvas
+    inCorner={!isHero}
+    cornerOffset={{ top: 16, right: 36 }}
+    cornerScale={0.4}
+    onClickCorner={backToHero}
+    fixed
+    tint="purple"
+  />
+
+  {/* Title only on hero */}
+  <AnimatePresence>
+    {isHero && (
+      <motion.div
+        key="title"
+        className="absolute left-1/2 -translate-x-1/2 top-[58vh] z-[30] text-center px-6 pointer-events-none"
+        variants={titleVariants}
+        initial="hidden"
+        animate="show"
+        exit="exit"
+      >
+        <h1 className="text-4xl md:text-6xl font-semibold tracking-tight">
+          Clarion <span className="opacity-60">— see truth clearly.</span>
+        </h1>
+        <p className="mt-3 opacity-80">Hover the orb to explore. Click a mode to continue.</p>
+      </motion.div>
+    )}
+  </AnimatePresence>
+
+  {/* Orbiting buttons — ONLY visible on hero */}
+  <AnimatePresence>
+    {isHero && (
+      <div className="absolute inset-0 pointer-events-auto">
+        <OrbMenuOrbit
+          key={`orbit-${orbitEpoch}`}
+          items={orbitItems}
+          radius={260}
+          speed={0.09}
+          showSourcesSub={showSourcesSub}
+          onPickSource={(s) => { setSource(s); setShowSourcesSub(false); }}
+          fixed
+          active={active}
         />
-
-        {/* Title – only visible on hero */}
-        <AnimatePresence>
-          {isHero && (
-            <motion.div
-              key="title"
-              className="absolute left-1/2 -translate-x-1/2 top-[58vh] z-[30] text-center px-6"
-              variants={titleVariants}
-              initial="hidden"
-              animate="show"
-              exit="exit"
-              style={{ pointerEvents: "none" }}
-            >
-              <h1 className="text-4xl md:text-6xl font-semibold tracking-tight">
-                Clarion <span className="opacity-60">— see truth clearly.</span>
-              </h1>
-              <p className="mt-3 opacity-80">Hover the orb to explore. Click a mode to continue.</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Orbit menu – always mounted to avoid position snap; just fade/disable */}
-        <motion.div
-          initial={false}
-          animate={
-            isHero
-              ? { opacity: 1, transition: { delay: 0.25, duration: 0.35 } }
-              : { opacity: 0, transition: { duration: 0.25 } }
-          }
-          className="absolute inset-0"
-          style={{ pointerEvents: isHero ? "auto" : "none" }}
-        >
-          <AnimatePresence>
-            {isHero && (
-          <OrbMenuOrbit
-            key={'orbit-${orbitEpoch}'} // reset position on epoch change
-            items={orbitItems}
-            radius={260}
-            speed={0.09}
-            showSourcesSub={showSourcesSub}
-            onPickSource={(s) => { setSource(s); setShowSourcesSub(false); }}
-            fixed
-            active={active}
-          />
-            )}
-            </AnimatePresence>
-        </motion.div>
       </div>
+    )}
+  </AnimatePresence>
+</div>
+
 
       {/* Spacer that only occupies flow when a section is open (prevents content jumping under the fixed overlay) */}
       {!isHero && <div className="h-[140px]" />}

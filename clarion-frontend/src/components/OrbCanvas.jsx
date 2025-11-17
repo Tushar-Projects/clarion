@@ -1,17 +1,22 @@
 import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useRef, useMemo } from "react";
-import { motion, transform } from "framer-motion";
+import { motion } from "framer-motion";
 
 import glassFrag from "./shaders/glassOrb.frag?raw";
 import glassVert from "./shaders/glassOrb.vert?raw";
 
 function GlitchyOrb({ tint = "purple" }) {
   const mesh = useRef();
-  const uniforms = useMemo(() => ({
-    uTime: { value: 0 },
-    uTint: { value: new THREE.Color(tint === "purple" ? "#7c3aed" : "#ffffff") },
-  }), [tint]);
+  const uniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uTint: {
+        value: new THREE.Color(tint === "purple" ? "#7c3aed" : "#ffffff"),
+      },
+    }),
+    [tint]
+  );
 
   useFrame((state) => {
     uniforms.uTime.value = state.clock.getElapsedTime();
@@ -24,9 +29,7 @@ function GlitchyOrb({ tint = "purple" }) {
       <shaderMaterial
         vertexShader={glassVert}
         fragmentShader={
-          glassFrag.includes("uTint")
-            ? glassFrag
-            : glassFrag + "\n// tint passthrough"
+          glassFrag.includes("uTint") ? glassFrag : glassFrag + "\n// tint passthrough"
         }
         uniforms={uniforms}
         transparent
@@ -43,34 +46,54 @@ export default function OrbCanvas({
   onClickCorner,
   tint = "purple",
 }) {
+  // Variants animation still exists, but we will override via style
   const variants = {
-    center: {
-      top: "50%",
-      left: "50%",
-      right: "auto",
-      transform: "translate(-50%, -50%) scale(1)",
-      transition: { type: "spring", stiffness: 140, damping: 16 }
-    },
-    corner: {
-      top: '${cornerOffset.top}px',
-      left: "auto",
-      right: "${cornerOffset.right}px",
-      transform: `translate(0,0) scale(${cornerScale})`,
-      transformOrigin: "top right",
-      transition: { type: "spring", stiffness: 140, damping: 16 }
-    }
-  };
+  center: {
+    top: "50%",
+    left: "50%",
+    right: "auto",
+    transform: "translate(-50%, -50%) scale(1)",
+    transition: { type: "spring", stiffness: 140, damping: 16 },
+  },
+  corner: {
+    top: cornerOffset.top,
+    left: "auto",
+    right: cornerOffset.right,
+    transform: `translate(0, 0) scale(${cornerScale})`,
+    transition: { type: "spring", stiffness: 140, damping: 16 },
+  },
+};
+
 
   return (
     <motion.div
       className="fixed z-[20] pointer-events-auto"
-      style={{ width: 520, height: 520, transformOrigin: "center center" }}
       initial={false}
       animate={inCorner ? "corner" : "center"}
       variants={variants}
       onClick={inCorner ? onClickCorner : undefined}
+      style={{
+        width: 520,
+        height: 520,
+
+        // 🔥 THIS IS THE IMPORTANT PART — force override center vs. corner
+        ...(inCorner
+          ? { 
+              position: "fixed",
+              top: cornerOffset.top,
+              left: "auto",
+              right: cornerOffset.right,
+              transform: `scale(${cornerScale})`,
+            }
+          : {
+              top: "50%",
+              left: "50%",
+              // right: "auto",
+              transform: "translate(-50%, -50%) scale(1)",
+            }),
+      }}
     >
-      <Canvas camera={{ position: [0, 0, 5.2], fov: 45 }} gl={{ antialias: true }}>
+      <Canvas camera={{ position: [0, 0, 5.2], fov: 45 }} gl={{ antialias: true }} resize={{ scroll: false, debounce: 0}}>
         <ambientLight intensity={0.6} />
         <directionalLight position={[4, 4, 6]} intensity={1.2} />
         <GlitchyOrb tint={tint} />
@@ -78,4 +101,3 @@ export default function OrbCanvas({
     </motion.div>
   );
 }
-
