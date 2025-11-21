@@ -32,6 +32,7 @@ class Post(Base):
     verified_manual = Column(Boolean, default=False) 
     upvotes = Column(Integer, default=0)
     num_comments = Column(Integer, default=0)
+    subreddit = Column(String, nullable=True) # <-- Add this
     source = relationship("Source", back_populates="posts")
     comments = relationship("Comment", back_populates="post")
 

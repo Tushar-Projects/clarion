@@ -18,6 +18,7 @@ export default function App() {
   const [active, setActive] = useState(null); // null = hero
   const [source, setSource] = useState("all");
   const [showSourcesSub, setShowSourcesSub] = useState(false);
+  const [orbTint, setOrbTint] = useState("purple");
 
   const isHero = active === null;
 
@@ -42,30 +43,30 @@ export default function App() {
 
   const orbitItems = useMemo(
     () => [
-      { id: "top",      label: "Top Posts Today", onClick: () => openSection("top") },
-      { id: "check",    label: "Check a Post",    onClick: () => openSection("check") },
-      { id: "history",  label: "History",         onClick: () => openSection("history") },
-      { id: "settings", label: "Settings",        onClick: () => openSection("settings") },
-      { id: "sources",  label: "Sources",         onClick: () => setShowSourcesSub(v => !v) },
-      { id: "theme",    label: dark ? "Light Mode" : "Dark Mode", onClick: () => setDark(v => !v) },
+      { id: "top", label: "Top Posts Today", onClick: () => openSection("top") },
+      { id: "check", label: "Check a Post", onClick: () => openSection("check") },
+      { id: "history", label: "History", onClick: () => openSection("history") },
+      { id: "settings", label: "Settings", onClick: () => openSection("settings") },
+      { id: "sources", label: "Sources", onClick: () => setShowSourcesSub(v => !v) },
+      { id: "theme", label: dark ? "Light Mode" : "Dark Mode", onClick: () => setDark(v => !v) },
     ],
     [dark]
   );
 
   const brandVariants = {
     hidden: { opacity: 0, y: -12 },
-    show:   { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
+    show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
   };
 
   const titleVariants = {
     hidden: { opacity: 0, y: 16 },
-    show:   { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } },
-    exit:   { opacity: 0, y: -16, transition: { duration: 0.45, ease: "easeIn" } }
+    show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } },
+    exit: { opacity: 0, y: -16, transition: { duration: 0.45, ease: "easeIn" } }
   };
 
   // Section enter/exit
   const sectionEnter = { opacity: 1, y: 0, transition: { duration: 0.45, ease: "easeOut" } };
-  const sectionExit  = { opacity: 0, y: -14, transition: { duration: 0.35, ease: "easeIn" } };
+  const sectionExit = { opacity: 0, y: -14, transition: { duration: 0.35, ease: "easeIn" } };
 
   return (
     <main className="min-h-screen text-zinc-900 dark:text-zinc-100 bg-gradient-to-b from-white to-zinc-50 dark:from-[#0a0b0e] dark:to-black">
@@ -81,54 +82,58 @@ export default function App() {
       </motion.div>
 
       {/* ORB ALWAYS MOUNTED */}
-<div className="fixed inset-0 z-[40] pointer-events-none">
-  
-  <OrbCanvas
-    inCorner={!isHero}
-    cornerOffset={{ top: 16, right: 36 }}
-    cornerScale={0.4}
-    onClickCorner={backToHero}
-    fixed
-    tint="purple"
-  />
+      <div className="fixed inset-0 z-[40] pointer-events-none">
 
-  {/* Title only on hero */}
-  <AnimatePresence>
-    {isHero && (
-      <motion.div
-        key="title"
-        className="absolute left-1/2 -translate-x-1/2 top-[58vh] z-[30] text-center px-6 pointer-events-none"
-        variants={titleVariants}
-        initial="hidden"
-        animate="show"
-        exit="exit"
-      >
-        <h1 className="text-4xl md:text-6xl font-semibold tracking-tight">
-          Clarion <span className="opacity-60">— see truth clearly.</span>
-        </h1>
-        <p className="mt-3 opacity-80">Hover the orb to explore. Click a mode to continue.</p>
-      </motion.div>
-    )}
-  </AnimatePresence>
-
-  {/* Orbiting buttons — ONLY visible on hero */}
-  <AnimatePresence>
-    {isHero && (
-      <div className="absolute inset-0 pointer-events-auto">
-        <OrbMenuOrbit
-          key={`orbit-${orbitEpoch}`}
-          items={orbitItems}
-          radius={260}
-          speed={0.09}
-          showSourcesSub={showSourcesSub}
-          onPickSource={(s) => { setSource(s); setShowSourcesSub(false); }}
+        <OrbCanvas
+          inCorner={!isHero}
+          cornerOffset={{ top: 24, right: 24 }}
+          cornerScale={0.45}
+          onClickCorner={backToHero}
           fixed
-          active={active}
+          tint={orbTint}
         />
+
+        {/* Title only on hero */}
+        <AnimatePresence>
+          {isHero && (
+            <motion.div
+              key="title"
+              className="absolute left-1/2 -translate-x-1/2 top-[58vh] z-[30] text-center px-6 pointer-events-none"
+              variants={titleVariants}
+              initial="hidden"
+              animate="show"
+              exit="exit"
+            >
+              <h1 className="text-4xl md:text-6xl font-semibold tracking-tight">
+                Clarion <span className="text-purple-400 drop-shadow-[0_0_10px_rgba(192,132,252,0.6)]">— see truth clearly.</span>
+              </h1>
+              <p className="mt-3 opacity-80">Hover the orb to explore. Click a mode to continue.</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Orbiting buttons — ONLY visible on hero */}
+        <AnimatePresence>
+          {isHero && (
+            <div className="absolute inset-0 pointer-events-auto">
+              <OrbMenuOrbit
+                key={`orbit-${orbitEpoch}`}
+                items={orbitItems}
+                radius={260}
+                speed={0.09}
+                showSourcesSub={showSourcesSub}
+                onPickSource={(s) => {
+                  setSource(s);
+                  setShowSourcesSub(false);
+                  openSection("top");
+                }}
+                fixed
+                active={active}
+              />
+            </div>
+          )}
+        </AnimatePresence>
       </div>
-    )}
-  </AnimatePresence>
-</div>
 
 
       {/* Spacer that only occupies flow when a section is open (prevents content jumping under the fixed overlay) */}
@@ -144,9 +149,9 @@ export default function App() {
             initial={{ opacity: 0, y: 14 }}
             animate={sectionEnter}
             exit={sectionExit}
-            className="pt-6"
+            className="pt-6 relative z-10"
           >
-            <SectionTopToday source={source} />
+            <SectionTopToday source={source} setOrbTint={setOrbTint} />
           </motion.div>
         )}
 
@@ -156,7 +161,7 @@ export default function App() {
             initial={{ opacity: 0, y: 14 }}
             animate={sectionEnter}
             exit={sectionExit}
-            className="pt-6"
+            className="pt-6 relative z-10"
           >
             <SectionCheck source={source} />
           </motion.div>
@@ -168,9 +173,9 @@ export default function App() {
             initial={{ opacity: 0, y: 14 }}
             animate={sectionEnter}
             exit={sectionExit}
-            className="pt-6"
+            className="pt-6 relative z-10"
           >
-            <SectionHistory source={source} />
+            <SectionHistory source={source} setOrbTint={setOrbTint} />
           </motion.div>
         )}
 
@@ -180,7 +185,7 @@ export default function App() {
             initial={{ opacity: 0, y: 14 }}
             animate={sectionEnter}
             exit={sectionExit}
-            className="pt-6"
+            className="pt-6 relative z-10"
           >
             <SectionSettings source={source} />
           </motion.div>

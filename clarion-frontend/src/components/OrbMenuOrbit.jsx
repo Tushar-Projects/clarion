@@ -3,8 +3,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import clsx from "clsx";
 
 const BTN = "px-5 py-2.5 rounded-full glass text-base whitespace-nowrap select-none";
-const HOVER = { scale: 1.04, transition: { duration: 0.25, ease: "easeOut" } };
-
 
 export default function OrbMenuOrbit({
   items,
@@ -19,7 +17,7 @@ export default function OrbMenuOrbit({
   const [hovered, setHovered] = useState(null);
   const raf = useRef();
 
- // run RAF only on hero
+  // run RAF only on hero
   useEffect(() => {
     if (active != null) return; // section open → don't animate
     const tick = () => {
@@ -33,11 +31,11 @@ export default function OrbMenuOrbit({
   // when we come back to hero, re-center angle
   useEffect(() => {
     if (active === null) setT(0);
- }, [active]);
+  }, [active]);
 
 
   // this box matches OrbCanvas (520x520)
-  const center = { x: 260, y: 260 + 20};
+  const center = { x: 260, y: 260 + 20 };
 
   // place on equator; no vertical drift (so path hugs the orb's X axis)
   const angles = useMemo(() => {
@@ -71,87 +69,111 @@ export default function OrbMenuOrbit({
         const isHovered = hovered === item.id;
 
         return (
-          <motion.button
+          <motion.div
             key={item.id}
-            className={clsx(BTN)}
-            // whileHover={HOVER}
-           style={{
-  position: "absolute",
-  left: x,
-  top: y,
-  transform: `translate(-50%, -50%) scale(${scale})`,
-  opacity: alpha,
-  zIndex: Math.round(50 + frontness * 50),
-  pointerEvents: clickable ? "auto" : "none",
-  border: isHovered ? "1.6px solid rgba(255,255,255,0.85)" : "1px solid rgba(255,255,255,0.25)",
-  boxShadow: isHovered
-    ? "0 0 14px rgba(255,255,255,0.55)"
-    : "0 0 6px rgba(0,0,0,0.25)",
-  transition: "border 0.18s ease, box-shadow 0.18s ease"
-}}
-
+            style={{
+              position: "absolute",
+              left: x,
+              top: y,
+              transform: `translate(-50%, -50%) scale(${scale})`,
+              opacity: alpha,
+              zIndex: Math.round(50 + frontness * 50),
+              pointerEvents: clickable ? "auto" : "none",
+            }}
             onMouseEnter={() => setHovered(item.id)}
             onMouseLeave={() => setHovered(null)}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!clickable) return;
-              if (isSources) return; // sources handled via submenu
-              item.onClick?.();
-            }}
           >
-            {item.label}
+            <div
+              className={clsx(BTN)}
+              style={{
+                border: isHovered ? "1.6px solid rgba(255,255,255,0.85)" : "1px solid rgba(255,255,255,0.25)",
+                boxShadow: isHovered
+                  ? "0 0 14px rgba(255,255,255,0.55)"
+                  : "0 0 6px rgba(0,0,0,0.25)",
+                transition: "border 0.18s ease, box-shadow 0.18s ease",
+                cursor: "pointer",
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!clickable) return;
+                item.onClick?.();
+              }}
+            >
+              {item.label}
+            </div>
 
             {/* Sources submenu */}
             {isSources && (
               <AnimatePresence>
-                {showSourcesSub && isHovered && (
-                  <MiniRadial
-                    anchor={{ x, y }}
+                {showSourcesSub && (
+                  <SourceDropdown
                     onPick={(s) => onPickSource?.(s)}
                   />
                 )}
               </AnimatePresence>
             )}
-          </motion.button>
+          </motion.div>
         );
       })}
     </div>
   );
 }
 
-function MiniRadial({ anchor, onPick }) {
+function SourceDropdown({ onPick }) {
+  const [customMode, setCustomMode] = useState(false);
+  const [customVal, setCustomVal] = useState("");
+
   const opts = [
-    { id: "reddit",  label: "Reddit"  },
-    { id: "twitter", label: "Twitter" },
-    { id: "news",    label: "News"    },
+    { id: "news", label: "News" },
+    // Removed Reddit/Twitter as requested
   ];
-  const r = 70;
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1, transition: { duration: 0.18 } }}
-      exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
-      className="absolute"
-      style={{ left: anchor.x, top: anchor.y, transform: "translate(-50%, -50%)" }}
+      initial={{ opacity: 0, y: -10, scale: 0.95 }}
+      animate={{ opacity: 1, y: 10, scale: 1, transition: { duration: 0.2, ease: "easeOut" } }}
+      exit={{ opacity: 0, y: -10, scale: 0.95, transition: { duration: 0.15 } }}
+      className="absolute left-1/2 -translate-x-1/2 top-full flex flex-col gap-1 p-2 rounded-xl glass border border-white/20 shadow-xl z-[60]"
+      style={{ minWidth: 140, pointerEvents: "auto" }}
+      onClick={(e) => e.stopPropagation()}
     >
-      {opts.map((o, idx) => {
-        const ang = (idx / opts.length) * 2 * Math.PI;
-        const x = Math.cos(ang) * r;
-        const y = Math.sin(ang) * r;
+      {opts.map((o) => (
+        <button
+          key={o.id}
+          className="px-4 py-2 rounded-lg hover:bg-white/10 text-sm text-left w-full transition-colors text-white"
+          onClick={() => onPick?.(o.id)}
+        >
+          {o.label}
+        </button>
+      ))}
 
-        return (
-          <motion.button
-            key={o.id}
-            whileHover={{ scale: 1.06 }}
-            className="px-3 py-1.5 rounded-full glass text-sm pointer-events-auto"
-            style={{ position: "absolute", left: x, top: y, transform: "translate(-50%, -50%)" }}
-            onClick={(e) => { e.stopPropagation(); onPick?.(o.id); }}
-          >
-            {o.label}
-          </motion.button>
-        );
-      })}
+      {/* Custom Option */}
+      {!customMode ? (
+        <button
+          className="px-4 py-2 rounded-lg hover:bg-white/10 text-sm text-left w-full transition-colors text-white"
+          onClick={() => setCustomMode(true)}
+        >
+          Custom
+        </button>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (customVal.trim()) onPick?.(customVal.trim());
+          }}
+          className="px-2 py-1"
+        >
+          <input
+            autoFocus
+            type="text"
+            className="w-full bg-white/10 rounded px-2 py-1 text-sm text-white outline-none border border-white/30 focus:border-white/60"
+            placeholder="subreddit..."
+            value={customVal}
+            onChange={(e) => setCustomVal(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+        </form>
+      )}
     </motion.div>
   );
 }
