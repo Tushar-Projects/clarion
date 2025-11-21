@@ -221,42 +221,78 @@ def _auto_ingest_top_posts_if_possible(source: str, db, limit: int = 5) -> int:
 @app.route("/top-posts", methods=["GET"])
 def top_posts():
     source = request.args.get("source", "all").lower()
+    
+    # Determine what to fetch if we need to fetch
+    fetch_source = source
+    if fetch_source == "all":
+        fetch_source = "news"
+
     db = SessionLocal()
     try:
-        q = db.query(Post)
-
+        # 1. Check if we have recent posts for this source
+        base_query = db.query(Post).filter(Post.platform == "Reddit")
+        
+        # Only filter by subreddit if not "all"
         if source != "all":
-            q = q.filter(Post.platform.ilike(f"%{source}%"))
+             base_query = base_query.filter(Post.subreddit.ilike(source))
 
-        # Try to get posts sorted by advanced score first
+        latest_post = base_query.order_by(Post.created_at.desc()).first()
+        
+        should_fetch = False
+        if not latest_post:
+            should_fetch = True
+            print(f"ℹ️ No posts found for r/{fetch_source} — fetching fresh data...")
+        else:
+            # Check age
+            import datetime
+            now = datetime.datetime.utcnow()
+            # If latest post is older than 1 hour (60 mins)
+            age = now - latest_post.created_at
+            if age.total_seconds() > 3600: # 1 hour
+                should_fetch = True
+                print(f"ℹ️ Data for r/{fetch_source} is stale ({age}) — fetching fresh data...")
+
+        if should_fetch:
+            from app.utils.reddit_api import fetch_and_store_posts
+            # Fetch fresh posts
+            fetch_and_store_posts(fetch_source, limit=10)
+            
+            # 🔥 CRITICAL: Expire session to see changes made by fetch_and_store_posts (which used a different session)
+            db.expire_all()
+            
+            # Re-score newly inserted posts
+            # We query specifically for the fetched source to ensure we score them
+            score_query = db.query(Post).filter(Post.platform == "Reddit")
+            if source != "all":
+                score_query = score_query.filter(Post.subreddit.ilike(source))
+            else:
+                # If source was all, we fetched 'news', so maybe just score recent reddit posts generally
+                pass 
+            
+            recent_posts = score_query.order_by(Post.created_at.desc()).limit(10).all()
+            
+            for p in recent_posts:
+                # Run pipeline if scores are missing
+                if p.advanced_score is None and p.credibility_score is None:
+                    print(f"🔍 Scoring new post: {p.id}...")
+                    nlp_pipeline.process_single_post(p.id)
+                    credibility.compute_single_post(p.id)
+            
+            # Commit the scores
+            db.commit()
+
+        # 2. Return results
         posts = (
-            q.order_by(Post.advanced_score.desc().nullslast(), Post.created_at.desc())
+            base_query.order_by(Post.advanced_score.desc().nullslast(), Post.created_at.desc())
             .limit(20)
             .all()
         )
 
-        # If DB is empty → auto-fetch from Reddit "news" & re-score
-        if not posts:
-            print("ℹ️ No posts found — fetching fresh subreddit data...")
-            from app.utils.reddit_api import fetch_and_store_posts
-            fetch_and_store_posts("news", limit=5)   # you can change news → politics/worldnews/etc.
-
-            # After fetching → re-score newly inserted posts
-            recent_posts = db.query(Post).order_by(Post.created_at.desc()).limit(10).all()
-            for p in recent_posts:
-                nlp_pipeline.process_single_post(p.id)
-                credibility.compute_single_post(p.id)
-
-            # Re-query
-            posts = (
-                q.order_by(Post.advanced_score.desc().nullslast(), Post.created_at.desc())
-                .limit(20)
-                .all()
-            )
-
-        # serialize for UI
         results = [post_to_dict(p, include_comments=False) for p in posts]
         return jsonify({"source": source, "results": results})
+    except Exception as e:
+        print(f"❌ Error in top_posts: {e}")
+        return jsonify({"error": str(e)}), 500
     finally:
         db.close()
 

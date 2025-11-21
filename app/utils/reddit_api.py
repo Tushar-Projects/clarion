@@ -96,6 +96,7 @@ def fetch_and_store_posts(subreddit_name="news", limit=10):
                 existing_post.source_id = source_id
                 existing_post.upvotes = submission.score or 0
                 existing_post.num_comments = submission.num_comments or 0
+                existing_post.subreddit = submission.subreddit.display_name # Store subreddit
                 db.add(existing_post)
                 post_record = existing_post
             else:
@@ -107,6 +108,7 @@ def fetch_and_store_posts(subreddit_name="news", limit=10):
                     source_id=source_id,
                     upvotes=submission.score or 0,
                     num_comments=submission.num_comments or 0,
+                    subreddit=submission.subreddit.display_name # Store subreddit
                 )
                 db.add(new_post)
                 db.commit()
@@ -167,6 +169,7 @@ def fetch_post_by_url(url: str, comment_limit: int = 20):
             existing_post.source_id = source_id
             existing_post.upvotes = submission.score or 0
             existing_post.num_comments = submission.num_comments or 0
+            existing_post.subreddit = submission.subreddit.display_name # Store subreddit
             db.add(existing_post)
             db.commit()
             db.refresh(existing_post)
@@ -180,6 +183,7 @@ def fetch_post_by_url(url: str, comment_limit: int = 20):
                 source_id=source_id,
                 upvotes=submission.score or 0,
                 num_comments=submission.num_comments or 0,
+                subreddit=submission.subreddit.display_name # Store subreddit
             )
             db.add(new_post)
             db.commit()

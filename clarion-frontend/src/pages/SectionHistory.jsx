@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { getHistory } from "../api";
 
-export default function SectionHistory() {
+export default function SectionHistory({ setOrbTint }) {
   const [posts, setPosts] = useState([]);
 
   useEffect(() => {
@@ -10,6 +10,14 @@ export default function SectionHistory() {
       if (Array.isArray(data)) setPosts(data);
     });
   }, []);
+
+  const getTint = (score) => {
+    if (score === null || score === undefined) return "purple";
+    if (score < 0) return "red";
+    if (score > 0.5) return "gold";
+    if (score >= 0.1) return "green";
+    return "purple";
+  };
 
   return (
     <motion.section
@@ -36,7 +44,9 @@ export default function SectionHistory() {
           return (
             <div
               key={post.id}
-              className="glass p-5 rounded-2xl flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+              className="glass p-5 rounded-2xl flex flex-col md:flex-row md:items-center md:justify-between gap-4 transition-all duration-200 border border-white/25 shadow-[0_0_6px_rgba(0,0,0,0.25)] hover:border-white/85 hover:shadow-[0_0_14px_rgba(255,255,255,0.55)]"
+              onMouseEnter={() => setOrbTint?.(getTint(post.advanced_score))}
+              onMouseLeave={() => setOrbTint?.("purple")}
             >
               <div className="max-w-2xl">
                 <h3 className="font-medium text-lg">{post.title}</h3>

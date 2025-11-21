@@ -24,3 +24,5 @@ bs4
 newspaper3k
 snscrape
 flask-cors
+lxml_html_clean
+httpx
