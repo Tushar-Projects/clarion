@@ -16,7 +16,7 @@ export default function App() {
   }, [dark]);
   const [orbitEpoch, setOrbitEpoch] = useState(0); // to reset orbit position on source change
   const [active, setActive] = useState(null); // null = hero
-  const [source, setSource] = useState("all");
+  const [source, setSource] = useState("news");
   const [showSourcesSub, setShowSourcesSub] = useState(false);
   const [orbTint, setOrbTint] = useState("purple");
 

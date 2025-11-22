@@ -4,13 +4,23 @@ import { getTopPosts } from "../api";
 
 export default function SectionTopToday({ source, setOrbTint }) {
   const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchPosts = (force = false) => {
+    setLoading(true);
+    getTopPosts(source, force)
+      .then((data) => {
+        if (data && Array.isArray(data.results)) {
+          console.log("Received posts:", data.results.map(p => `${p.id}: ${p.title}`));
+          setPosts(data.results);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch posts:", err))
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    getTopPosts(source).then((data) => {
-      if (data && Array.isArray(data.results)) {
-        setPosts(data.results);
-      }
-    });
+    fetchPosts(false);
   }, [source]);
 
   const getTint = (score) => {
@@ -30,9 +40,18 @@ export default function SectionTopToday({ source, setOrbTint }) {
       transition={{ duration: 0.5 }}
     >
       <div className="w-full max-w-5xl space-y-6">
-        <h2 className="text-3xl font-semibold mb-4">Top Posts Today</h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-3xl font-semibold">Top Posts Today</h2>
+          <button
+            onClick={() => fetchPosts(true)}
+            disabled={loading}
+            className="px-4 py-2 rounded-lg glass hover:bg-white/10 transition text-sm disabled:opacity-50"
+          >
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
 
-        {posts.length === 0 && (
+        {posts.length === 0 && !loading && (
           <div className="opacity-70 text-center py-20">
             Fetching posts…
           </div>
@@ -60,6 +79,13 @@ export default function SectionTopToday({ source, setOrbTint }) {
                   <span className="font-semibold text-purple-400">
                     {post.advanced_score !== null
                       ? post.advanced_score.toFixed(2)
+                      : "N/A"}
+                  </span>
+                  <span className="mx-2 opacity-40">|</span>
+                  <span className="opacity-70">Community:</span>{" "}
+                  <span className="font-semibold text-blue-400">
+                    {post.community_sentiment !== null && post.community_sentiment !== undefined
+                      ? post.community_sentiment.toFixed(2)
                       : "N/A"}
                   </span>
                 </p>
