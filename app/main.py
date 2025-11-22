@@ -221,6 +221,7 @@ def _auto_ingest_top_posts_if_possible(source: str, db, limit: int = 5) -> int:
 @app.route("/top-posts", methods=["GET"])
 def top_posts():
     source = request.args.get("source", "all").lower()
+    force_refresh = request.args.get("force_refresh", "false").lower() == "true"
     
     # Determine what to fetch if we need to fetch
     fetch_source = source
@@ -230,16 +231,28 @@ def top_posts():
     db = SessionLocal()
     try:
         # 1. Check if we have recent posts for this source
+        import datetime
+        now = datetime.datetime.utcnow()
+        # Filter by time (last 1.2 hours = 72 mins) to ensure we only show currently active posts
+        # If a post was deleted, it won't be in the fresh fetch, so its created_at won't be updated.
+        cutoff = now - datetime.timedelta(minutes=72)
+
         base_query = db.query(Post).filter(Post.platform == "Reddit")
         
         # Only filter by subreddit if not "all"
         if source != "all":
              base_query = base_query.filter(Post.subreddit.ilike(source))
 
+        # Filter by time
+        base_query = base_query.filter(Post.created_at >= cutoff)
+
         latest_post = base_query.order_by(Post.created_at.desc()).first()
         
         should_fetch = False
-        if not latest_post:
+        if force_refresh:
+            should_fetch = True
+            print(f"ℹ️ Force refresh requested for r/{fetch_source}...")
+        elif not latest_post:
             should_fetch = True
             print(f"ℹ️ No posts found for r/{fetch_source} — fetching fresh data...")
         else:
@@ -303,11 +316,14 @@ def top_posts():
 # ---------------------------
 @app.route("/check-post", methods=["GET", "POST"])
 def check_post():
+    recalculate = False
     if request.method == "GET":
         url = (request.args.get("url") or "").strip()
+        recalculate = request.args.get("recalculate", "false").lower() == "true"
     else:
         body = request.get_json(silent=True) or {}
         url = (body.get("url") or "").strip()
+        recalculate = body.get("recalculate", False)
 
     if not url:
         return jsonify({"error": "No URL provided"}), 400
@@ -321,8 +337,22 @@ def check_post():
     db = SessionLocal()
     platform = "Unknown"
     post_id = None
+    previous_result = None
 
     try:
+        # 1. Check if we have this URL exactly in DB
+        existing_post = db.query(Post).filter(Post.url == url).first()
+
+        if existing_post:
+            if not recalculate:
+                # Return existing immediately
+                print(f"⚡ Returning cached result for {url}")
+                return jsonify(post_to_dict(existing_post))
+            else:
+                # Capture previous state for diff
+                previous_result = post_to_dict(existing_post)
+                print(f"🔄 Recalculating for {url}...")
+
         if "reddit.com" in url:
             platform = "Reddit"
             post_id = fetch_post_by_url(url)
@@ -350,7 +380,12 @@ def check_post():
             "credibility_score": post.advanced_score if post.advanced_score is not None else post.credibility_score,
             "advanced_score": post.advanced_score,
             "community_sentiment": post.community_sentiment,
+            "url": post.url, # Ensure we return the canonical URL
         }
+        
+        if previous_result:
+            result["previous_result"] = previous_result
+
         return jsonify(result)
 
     finally:

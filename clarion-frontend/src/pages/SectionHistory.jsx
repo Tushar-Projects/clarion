@@ -58,6 +58,13 @@ export default function SectionHistory({ setOrbTint }) {
                       ? post.advanced_score.toFixed(2)
                       : "N/A"}
                   </span>
+                  <span className="mx-2 opacity-40">|</span>
+                  <span className="opacity-70">Community:</span>{" "}
+                  <span className="font-semibold text-blue-400">
+                    {post.community_sentiment !== null && post.community_sentiment !== undefined
+                      ? post.community_sentiment.toFixed(2)
+                      : "N/A"}
+                  </span>
                 </p>
               </div>
 

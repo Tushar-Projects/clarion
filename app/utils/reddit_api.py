@@ -97,6 +97,10 @@ def fetch_and_store_posts(subreddit_name="news", limit=10):
                 existing_post.upvotes = submission.score or 0
                 existing_post.num_comments = submission.num_comments or 0
                 existing_post.subreddit = submission.subreddit.display_name # Store subreddit
+                # Update created_at to now so we know it's still active/fresh
+                import datetime
+                existing_post.created_at = datetime.datetime.utcnow()
+                
                 db.add(existing_post)
                 post_record = existing_post
             else:
