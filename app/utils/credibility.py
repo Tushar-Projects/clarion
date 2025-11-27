@@ -202,17 +202,21 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
 
         # --- Step 2: Fact check adjustment ---
         factcheck_component = 0.0
-        try:
-            factchecked_score = apply_fact_check_adjustment(post.title, source_component, post.url)
-            print(f"✅ Fact-checked score: {factchecked_score}")  # Debug log
-            if factchecked_score is not None:
-                factcheck_component = factchecked_score - source_component
-            else:
-                factcheck_component = 0
-            print(f"🔎 Fact-check component: {factcheck_component}")  # Debug log
-        except Exception as e:
-            print(f"⚠️ Fact check error (news mode): {e}")  # Debug log
-            explanation["factcheck_error"] = str(e)
+        # Skip fact check for raw images (title is just "Image Verification")
+        if post.platform == "Image":
+            print("ℹ️ Skipping fact check for Image platform")
+        else:
+            try:
+                factchecked_score = apply_fact_check_adjustment(post.title, source_component, post.url)
+                print(f"✅ Fact-checked score: {factchecked_score}")  # Debug log
+                if factchecked_score is not None:
+                    factcheck_component = factchecked_score - source_component
+                else:
+                    factcheck_component = 0
+                print(f"🔎 Fact-check component: {factcheck_component}")  # Debug log
+            except Exception as e:
+                print(f"⚠️ Fact check error (news mode): {e}")  # Debug log
+                explanation["factcheck_error"] = str(e)
 
         explanation["factcheck_component"] = round(factcheck_component, 3)
 
@@ -283,29 +287,35 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
         explanation["reason"] = "no_valid_comments"
         valid_comments = []
 
-    # ---- Step 2: Detect fake/true signals ----
-    fake_keywords = [
-        "fake", "false", "misinformation", "propaganda", "hoax",
-        "scam", "made up", "not true", "incorrect", "wrong info",
-        "debunked", "fact check", "misleading", "clickbait"
-    ]
-    true_keywords = [
-        "real", "true", "confirmed", "fact", "evidence", "source",
-        "proven", "legit", "accurate", "verified", "authentic",
-        "checked", "supported"
-    ]
-
+    # ---- Step 2: Detect fake/true signals (LLM Enhanced) ----
+    from app.utils.llm_analysis import classify_comments_batch
+    
     fake_votes, true_votes, sarcasm_count = 0.0, 0.0, 0
-    for c in valid_comments:
-        text = c.text.lower()
+    
+    # Extract text for classification
+    comment_texts = [c.text for c in valid_comments]
+    
+    # Batch classify using LLM
+    print(f"🤖 Classifying {len(comment_texts)} comments...")
+    classifications = classify_comments_batch(comment_texts)
+    
+    for i, c in enumerate(valid_comments):
+        classification = classifications.get(i, "neutral")
+        
+        # Store classification in DB if needed (optional, but good for debugging)
+        c.classification = classification
+        
         sarcastic = bool(c.is_sarcastic)
         if sarcastic:
             sarcasm_count += 1
-
-        if any(word in text for word in fake_keywords):
-            fake_votes += 0.3 if sarcastic else 1.0
-        elif any(word in text for word in true_keywords):
-            true_votes += 0.3 if sarcastic else 1.0
+            
+        if classification == "refuting":
+            fake_votes += 0.5 if sarcastic else 1.0
+        elif classification == "supporting":
+            true_votes += 0.5 if sarcastic else 1.0
+        elif classification == "questioning":
+            # Questioning counts slightly towards fake/skepticism
+            fake_votes += 0.2
 
     total_comments = len(valid_comments)
     fake_ratio = fake_votes / total_comments if total_comments else 0
@@ -315,7 +325,8 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
     explanation.update({
         "fake_ratio": round(fake_ratio, 3),
         "true_ratio": round(true_ratio, 3),
-        "sarcasm_ratio": round(sarcasm_ratio, 3)
+        "sarcasm_ratio": round(sarcasm_ratio, 3),
+        "method": "llm_classification"
     })
 
     # ---- Step 3: Comment-driven credibility ----
@@ -375,23 +386,140 @@ def compute_advanced_score(post: Post, db: Session) -> tuple[float | None, dict]
     if boost_reason:
         explanation["article_reason"] = boost_reason
 
-    # ---- Step 7: Final weighted formula ----
+    # ---- Step 7: Breaking News Cross-Reference ----
+    corroboration_component = 0.0
+    if post.platform != "Image":
+        from app.utils.news_cross_check import check_breaking_news
+        from datetime import datetime, timedelta
+
+        # Only check if post is recent (< 24h) and not already corroborated
+        is_recent = post.created_at and post.created_at > datetime.now() - timedelta(hours=24)
+        
+        print(f"🕒 Post: {post.title[:20]}... | Recent: {is_recent} | Curr Score: {post.corroboration_score}")
+
+        # Force check for debugging (removed 'not post.corroboration_score')
+        if is_recent:
+            print(f"📰 Checking breaking news for: {post.title}")
+            news_result = check_breaking_news(post.title)
+            
+            if news_result:
+                post.corroboration_score = news_result["score_modifier"]
+                explanation["news_corroboration"] = {
+                    "matches": news_result["match_count"],
+                    "sources": news_result["sources"]
+                }
+        
+        if post.corroboration_score:
+            corroboration_component = post.corroboration_score
+            explanation["corroboration_component"] = corroboration_component
+
+    # ---- Step 8: Intrinsic Content Analysis (LLM) ----
+    llm_component = 0.0
+    if post.platform != "Image":
+        from app.utils.llm_analysis import analyze_content_with_llm
+        
+        # Only run LLM analysis if not already done (to save API calls/time)
+        if not post.llm_verdict:
+            print(f"🤖 Running LLM analysis for post: {post.id}")
+            llm_result = analyze_content_with_llm(post.title, post.url or "") # Passing URL as text snippet for now if no body
+            if llm_result:
+                post.llm_verdict = llm_result
+                post.sensationalism_score = llm_result.get("sensationalism_score")
+        
+        if post.llm_verdict:
+            # High credibility rating (0-1) -> Positive score
+            # High sensationalism (0-1) -> Negative score
+            cred_rating = post.llm_verdict.get("credibility_rating", 0.5)
+            sensationalism = post.llm_verdict.get("sensationalism_score", 0.0)
+            
+            # Formula: Credibility - (Sensationalism * 0.5)
+            # Map 0.5 to 0, 1.0 to 0.5, 0.0 to -0.5
+            llm_component = (cred_rating - 0.5) * 2  # -1 to 1 range
+            
+            # Penalize for sensationalism ONLY if not corroborated
+            if corroboration_component > 0:
+                 explanation["sensationalism_waived"] = True
+            else:
+                llm_component -= (sensationalism * 0.5)
+            
+            explanation["llm_verdict"] = post.llm_verdict.get("reasoning")
+            explanation["sensationalism"] = sensationalism
+
+    explanation["llm_component"] = round(llm_component, 3)
+
+    # ---- Step 9: Image Provenance Check ----
+    image_component = 0.0
+    from app.utils.image_check import check_image_provenance
+    
+    # Check if URL is an image (ignoring query params)
+    parsed_url = urlparse(post.url)
+    path = parsed_url.path.lower()
+    is_image = path.endswith(('.jpg', '.jpeg', '.png', '.webp'))
+    
+    if is_image and not post.image_provenance_status:
+        print(f"🖼️ Checking image provenance for: {post.url}")
+        image_result = check_image_provenance(post.url)
+        
+        if image_result:
+            post.image_provenance_status = image_result["status"]
+            # If recycled, apply heavy penalty
+            if image_result.get("is_recycled"):
+                image_component = image_result["score_modifier"]
+                explanation["image_provenance"] = image_result.get("reason", "Recycled image detected")
+            else:
+                # Slight boost for original
+                image_component = image_result["score_modifier"]
+    
+    elif post.image_provenance_status == "recycled":
+        # Re-apply penalty if already checked
+        image_component = -0.8
+        explanation["image_provenance"] = "Previously detected as recycled"
+
+    explanation["image_component"] = image_component
+
+    # ---- Step 10: Final weighted formula ----
+    # Adjusted weights to prioritize Corroboration and Fact Check
+    # If strongly corroborated, reduce impact of negative sentiment/LLM
+    
+    weight_corroboration = 0.25
+    weight_factcheck = 0.25
+    weight_llm = 0.15
+    weight_comments = 0.15
+    weight_source = 0.1
+    weight_image = 0.1
+    
+    # Dynamic weighting: If strong corroboration, boost its weight
+    if corroboration_component >= 0.4:
+        weight_corroboration = 0.4
+        weight_llm = 0.1 # Reduce LLM impact (it might be wrong about tone)
+        weight_comments = 0.1 # Reduce comment impact (skeptics)
+        explanation["weight_adjustment"] = "Strong corroboration boost"
+
     final_score = (
-        (0.4 * comment_component) +
-        (0.2 * source_component) +
-        (0.3 * factcheck_component) +
+        (weight_comments * comment_component) +
+        (weight_source * source_component) +
+        (weight_factcheck * factcheck_component) +
+        (weight_llm * llm_component) +
+        (weight_corroboration * corroboration_component) +
+        (weight_image * image_component) +
         article_boost
     )
+
+    # Corroboration Override: If 3+ trusted sources confirm it, score should be positive
+    if corroboration_component >= 0.4 and final_score < 0.2:
+        final_score = 0.3
+        explanation["override"] = "Corroboration override (3+ sources)"
 
     final_score = max(-1, min(1, final_score))
     explanation["final_score"] = round(final_score, 3)
 
-    # ---- Step 8: Fallback ----
-    if fake_ratio == 0 and true_ratio == 0:
-        explanation["reason"] = "no_truth_or_fake_mentions"
+    # ---- Step 11: Fallback ----
+    if fake_ratio == 0 and true_ratio == 0 and llm_component == 0 and corroboration_component == 0 and image_component == 0:
+        explanation["reason"] = "no_strong_signals"
         final_score = (
-            (0.5 * source_component) +
-            (0.4 * factcheck_component) +
+            (0.4 * source_component) +
+            (0.3 * factcheck_component) +
+            (0.3 * llm_component) +
             article_boost
         )
         final_score = max(-1, min(1, final_score))

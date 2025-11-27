@@ -89,6 +89,30 @@ export default function SectionTopToday({ source, setOrbTint }) {
                       : "N/A"}
                   </span>
                 </p>
+
+                {/* Reliability Signals */}
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {post.sensationalism_score > 0.6 && (
+                    <span className="px-2 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30">
+                      ⚠️ High Sensationalism
+                    </span>
+                  )}
+                  {post.corroboration_score > 0 && (
+                    <span className="px-2 py-1 rounded bg-green-500/20 text-green-300 border border-green-500/30">
+                      ✅ Corroborated
+                    </span>
+                  )}
+                  {post.image_provenance_status === "recycled" && (
+                    <span className="px-2 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30">
+                      ❌ Recycled Image
+                    </span>
+                  )}
+                  {post.llm_verdict && (
+                    <div className="w-full mt-1 p-2 rounded bg-white/5 border border-white/10 text-white/70 italic">
+                      "{(post.llm_verdict.reasoning || "").slice(0, 120)}..."
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex gap-3">
