@@ -24,7 +24,7 @@ class Post(Base):
     url = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     credibility_score = Column(Float, nullable=True)
-    sentiment_score = Column(Float, nullable=True)  # <-- Add this
+    sentiment_score = Column(Float, nullable=True)
     source_id = Column(Integer, ForeignKey("sources.id"))
     advanced_score = Column(Float, nullable=True)
     score_explanation = Column(JSON, nullable=True)
@@ -32,7 +32,15 @@ class Post(Base):
     verified_manual = Column(Boolean, default=False) 
     upvotes = Column(Integer, default=0)
     num_comments = Column(Integer, default=0)
-    subreddit = Column(String, nullable=True) # <-- Add this
+    subreddit = Column(String, nullable=True)
+    
+    # --- New Reliability Fields ---
+    sensationalism_score = Column(Float, nullable=True)
+    llm_verdict = Column(JSON, nullable=True)
+    corroboration_score = Column(Float, nullable=True)
+    image_provenance_status = Column(String, nullable=True) # 'original', 'recycled', 'unknown'
+    original_image_date = Column(DateTime, nullable=True)
+
     source = relationship("Source", back_populates="posts")
     comments = relationship("Comment", back_populates="post")
 
@@ -44,9 +52,12 @@ class Comment(Base):
     comment_id = Column(String, nullable=False, unique=True)
     text = Column(Text, nullable=False)
     post_id = Column(Integer, ForeignKey("posts.id"))
-    sentiment_score = Column(Float, nullable=True)  # <-- Add this
+    sentiment_score = Column(Float, nullable=True)
     is_sarcastic = Column(Boolean, default=False)
     language = Column(String, nullable=True)
+    
+    # --- New Reliability Fields ---
+    classification = Column(String, nullable=True) # 'refuting', 'supporting', 'questioning', 'neutral'
 
     post = relationship("Post", back_populates="comments")
 

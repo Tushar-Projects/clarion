@@ -17,6 +17,7 @@ export default function SectionCheck() {
       if (data.error) {
         alert(data.error);
       } else {
+        console.log("API Response (Check):", data); // Debug log
         setResult(data);
         if (data.url) setUrl(data.url);
       }
@@ -124,8 +125,25 @@ export default function SectionCheck() {
                 <div className="mt-4 text-lg">
                   Credibility Score:
                   <span className="font-semibold ml-1">
-                    {result.credibility_score !== null ? result.credibility_score.toFixed(2) : "N/A"}
+                    {result.credibility_score !== null && result.credibility_score !== undefined ? result.credibility_score.toFixed(2) : "N/A"}
                   </span>
+
+                  {/* Verdict Badge */}
+                  {result.credibility_score > 0.5 && (
+                    <span className="ml-3 px-3 py-1 rounded-full bg-green-500/20 text-green-300 border border-green-500/30 text-sm font-medium">
+                      ✅ Verified
+                    </span>
+                  )}
+                  {result.credibility_score < -0.5 && (
+                    <span className="ml-3 px-3 py-1 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 text-sm font-medium">
+                      ❌ Likely Fake
+                    </span>
+                  )}
+                  {result.credibility_score >= -0.5 && result.credibility_score <= 0.5 && result.credibility_score !== null && (
+                    <span className="ml-3 px-3 py-1 rounded-full bg-white/10 text-white/70 border border-white/20 text-sm font-medium">
+                      ⚖️ Neutral
+                    </span>
+                  )}
                 </div>
 
                 {result.community_sentiment !== null && (
@@ -133,6 +151,42 @@ export default function SectionCheck() {
                     Community Sentiment: {result.community_sentiment.toFixed(2)}
                   </div>
                 )}
+
+                {/* Reliability Signals */}
+                <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                  {result.sensationalism_score > 0.6 && (
+                    <span className="px-2 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30">
+                      ⚠️ High Sensationalism
+                    </span>
+                  )}
+                  {result.corroboration_score > 0 && (
+                    <span className="px-2 py-1 rounded bg-green-500/20 text-green-300 border border-green-500/30">
+                      ✅ Corroborated
+                    </span>
+                  )}
+                  {result.platform === "News" && (!result.corroboration_score || result.corroboration_score <= 0) && (
+                    <span className="px-2 py-1 rounded bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+                      ⚠️ Uncorroborated
+                    </span>
+                  )}
+                  {result.image_provenance_status === "recycled" && (
+                    <span className="px-2 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30">
+                      ❌ Recycled Image
+                    </span>
+                  )}
+                  {result.llm_verdict && (
+                    <div className="w-full mt-2 p-3 rounded bg-white/5 border border-white/10 text-white/80 italic">
+                      <span className="block font-semibold not-italic opacity-50 mb-1">AI Verdict:</span>
+                      "{result.llm_verdict.reasoning || ""}"
+                    </div>
+                  )}
+                  {result.image_provenance_status === "recycled" && result.score_explanation?.image_provenance && (
+                    <div className="w-full mt-2 p-3 rounded bg-red-500/10 border border-red-500/20 text-red-200">
+                      <span className="block font-semibold opacity-70 mb-1">Image Provenance:</span>
+                      "{result.score_explanation.image_provenance}"
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>

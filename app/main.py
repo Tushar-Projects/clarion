@@ -46,6 +46,13 @@ def post_to_dict(post, include_comments=False):
         "score_explanation": post.score_explanation,
         "created_at": post.created_at.isoformat() if post.created_at else None,
         "status": "scored" if chosen_score is not None else "insufficient_data",
+        
+        # --- New Reliability Fields ---
+        "sensationalism_score": post.sensationalism_score,
+        "llm_verdict": post.llm_verdict,
+        "corroboration_score": post.corroboration_score,
+        "image_provenance_status": post.image_provenance_status,
+        "original_image_date": post.original_image_date.isoformat() if post.original_image_date else None,
     }
 
     if include_comments:
@@ -364,11 +371,34 @@ def check_post():
             post_id = fetch_and_store_tweet(url, db)
             compute_single_post(post_id)
 
+        elif url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif')) or ".jpg?" in url.lower() or ".png?" in url.lower():
+            # Handle direct image links
+            platform = "Image"
+            # Create a dummy post for the image if it doesn't exist
+            existing_post = db.query(Post).filter_by(url=url).first()
+            if existing_post:
+                post_id = existing_post.id
+            else:
+                new_post = Post(
+                    platform="Image",
+                    title="Image Verification", # Placeholder title
+                    url=url,
+                    source_id=None # No specific source for raw images
+                )
+                db.add(new_post)
+                db.commit()
+                db.refresh(new_post)
+                post_id = new_post.id
+            
+            compute_single_post(post_id)
+
         else:
             platform = "News"
             post_id = news_scraper.fetch_and_store_article(url)
             compute_single_post(post_id)
 
+        # Refresh session to ensure we see updates from compute_single_post (which uses a separate session)
+        db.expire_all()
         post = db.query(Post).filter_by(id=post_id).first()
         if not post:
             return jsonify({"error": "Post not found after scoring"}), 404

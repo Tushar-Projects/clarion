@@ -26,3 +26,6 @@ snscrape
 flask-cors
 lxml_html_clean
 httpx
+google-generativeai
+newsapi-python
+google-search-results
