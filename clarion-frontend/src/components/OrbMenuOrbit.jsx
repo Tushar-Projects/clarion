@@ -17,21 +17,96 @@ export default function OrbMenuOrbit({
   const [hovered, setHovered] = useState(null);
   const raf = useRef();
 
+  // Physics state
+  const velocity = useRef(speed * 0.016); // Current angular velocity
+  const isDragging = useRef(false);
+  const lastX = useRef(0);
+  const dragDistance = useRef(0);
+
   // run RAF only on hero
   useEffect(() => {
     if (active != null) return; // section open → don't animate
+
     const tick = () => {
-      setT((prev) => prev + (hovered ? 0 : speed * 0.016));
+      // 1. DRAGGING: Follow mouse, calculate velocity
+      if (isDragging.current) {
+        // Velocity is calculated in the mousemove handler for smoother results, 
+        // or we can just let the physics take over on release.
+        // For now, we just let 't' be updated by mousemove.
+      }
+      // 2. INERTIA: Decay velocity towards target
+      else {
+        // Target velocity: 0 if hovered, 'speed' constant otherwise
+        // We convert 'speed' (arbitrary unit) to per-frame radians approx
+        // Original code: speed * 0.016 per frame
+        const targetV = hovered ? 0 : speed * 0.016;
+
+        // Smoothly interpolate current velocity to target velocity
+        // 0.05 factor = friction/responsiveness
+        velocity.current += (targetV - velocity.current) * 0.05;
+
+        // Apply velocity
+        setT((prev) => prev + velocity.current);
+      }
+
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf.current);
   }, [hovered, speed, active]);
 
+  // Drag Event Handlers
+  useEffect(() => {
+    const handleMove = (e) => {
+      if (!isDragging.current) return;
+
+      const deltaX = e.clientX - lastX.current;
+      lastX.current = e.clientX;
+      dragDistance.current += Math.abs(deltaX);
+
+      // Sensitivity factor - how much mouse movement translates to rotation
+      const sensitivity = 0.005;
+
+      // Update rotation immediately
+      setT(prev => {
+        const next = prev + deltaX * sensitivity;
+        // Calculate instantaneous velocity for when we release
+        velocity.current = deltaX * sensitivity;
+        return next;
+      });
+    };
+
+    const handleUp = () => {
+      isDragging.current = false;
+      document.body.style.cursor = '';
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, []);
+
+  const onPointerDown = (e) => {
+    // Only allow left click drag
+    if (e.button !== 0) return;
+
+    isDragging.current = true;
+    lastX.current = e.clientX;
+    dragDistance.current = 0;
+    document.body.style.cursor = 'grabbing';
+  };
+
   // when we come back to hero, re-center angle
   useEffect(() => {
-    if (active === null) setT(0);
-  }, [active]);
+    if (active === null) {
+      setT(0);
+      velocity.current = speed * 0.016; // Reset velocity too
+    }
+  }, [active, speed]);
 
 
   // this box matches OrbCanvas (520x520)
@@ -47,7 +122,8 @@ export default function OrbMenuOrbit({
   return (
     <div
       className={`${fixed ? "fixed" : "absolute"} z-[40]`}
-      style={{ width: 520, height: 520, left: "50%", top: "50%", transform: "translate(-50%, -50%)", pointerEvents: "none" }}
+      style={{ width: 520, height: 520, left: "50%", top: "50%", transform: "translate(-50%, -50%)", pointerEvents: "auto", cursor: "grab" }}
+      onPointerDown={onPointerDown}
     >
       {items.map((item, i) => {
         const ang = angles[i];
@@ -95,6 +171,7 @@ export default function OrbMenuOrbit({
               }}
               onClick={(e) => {
                 e.stopPropagation();
+                if (dragDistance.current > 5) return;
                 if (!clickable) return;
                 item.onClick?.();
               }}
