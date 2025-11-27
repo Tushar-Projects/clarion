@@ -66,24 +66,35 @@ export default function OrbCanvas({
   onClickCorner,
   tint = "purple",
 }) {
-  // Variants animation still exists, but we will override via style
+  const SIZE = 520;
+  const R = SIZE / 2;
+
+  // Calculate the CENTER coordinates for the corner state
+  // Visual Radius = R * cornerScale
+  // Center Y = cornerOffset.top + Visual Radius
+  // Center X (from right) = cornerOffset.right + Visual Radius
+
+  const cornerCenterY = cornerOffset.top + (R * cornerScale);
+  const cornerCenterX_FromRight = cornerOffset.right + (R * cornerScale);
+
   const variants = {
     center: {
       top: "50%",
       left: "50%",
-      right: "auto",
-      transform: "translate(-50%, -50%) scale(1)",
+      x: "-50%",
+      y: "-50%",
+      scale: 1,
       transition: { type: "spring", stiffness: 140, damping: 16 },
     },
     corner: {
-      top: cornerOffset.top,
-      left: "auto",
-      right: cornerOffset.right,
-      transform: `translate(0, 0) scale(${cornerScale})`,
+      top: cornerCenterY,
+      left: `calc(100% - ${cornerCenterX_FromRight}px)`,
+      x: "-50%",
+      y: "-50%",
+      scale: cornerScale,
       transition: { type: "spring", stiffness: 140, damping: 16 },
     },
   };
-
 
   return (
     <motion.div
@@ -93,26 +104,10 @@ export default function OrbCanvas({
       variants={variants}
       onClick={inCorner ? onClickCorner : undefined}
       style={{
-        width: 520,
-        height: 520,
+        width: SIZE,
+        height: SIZE,
         borderRadius: "50%",
-
-        // 🔥 THIS IS THE IMPORTANT PART — force override center vs. corner
-        ...(inCorner
-          ? {
-            position: "fixed",
-            top: cornerOffset.top,
-            left: "auto",
-            right: cornerOffset.right,
-            transform: `scale(${cornerScale})`,
-            transformOrigin: "top right",
-          }
-          : {
-            top: "50%",
-            left: "50%",
-            // right: "auto",
-            transform: "translate(-50%, -50%) scale(1)",
-          }),
+        // transformOrigin is default center, which works with translate(-50%, -50%)
       }}
     >
       <Canvas camera={{ position: [0, 0, 5.2], fov: 45 }} gl={{ antialias: true }} resize={{ scroll: false, debounce: 0 }}>
