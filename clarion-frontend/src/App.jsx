@@ -87,7 +87,7 @@ export default function App() {
         <OrbCanvas
           inCorner={!isHero}
           cornerOffset={{ top: 24, right: 24 }}
-          cornerScale={0.45}
+          cornerScale={0.40}
           onClickCorner={backToHero}
           fixed
           tint={orbTint}
